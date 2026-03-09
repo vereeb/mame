@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #f4ac1f;
+    --color-surface: #fafafa;
+    --color-surface-variant: #f5f5f5;
+    --color-outline: #e0e0e0;
+    --color-on-surface: #1a1a1a;
+  }
+
+  body {
+    @apply bg-surface text-black font-sans antialiased;
+  }
+}
