@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Roboto, Lora } from "next/font/google";
+import { Providers } from "@/components/Providers";
+import { ProjectDropdown } from "@/components/ProjectDropdown";
 import "./globals.css";
 
 const roboto = Roboto({
@@ -30,6 +32,7 @@ export default function RootLayout({
       className={`${roboto.variable} ${lora.variable}`}
     >
       <body className="min-h-screen flex flex-col">
+        <Providers>
         {/* Sticky Header with Project Dropdown */}
         <header className="sticky top-0 z-50 w-full bg-white border-b border-outline shadow-m3-1">
           <div className="flex items-center justify-between h-14 px-4 gap-3">
@@ -64,24 +67,9 @@ export default function RootLayout({
 
         {/* Mobile drawer overlay (for larger screens / drawer fallback) */}
         <MobileDrawer />
+        </Providers>
       </body>
     </html>
-  );
-}
-
-// --- Project Dropdown ---
-function ProjectDropdown() {
-  return (
-    <div className="flex-1 min-w-0">
-      <select
-        className="w-full max-w-[200px] md:max-w-xs h-9 pl-3 pr-8 rounded-lg border border-outline bg-surface-variant text-sm font-medium text-black focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary appearance-none cursor-pointer"
-        aria-label="Select project"
-      >
-        <option value="">Select project…</option>
-        <option value="1">Sample Project Alpha</option>
-        <option value="2">Sample Project Beta</option>
-      </select>
-    </div>
   );
 }
 

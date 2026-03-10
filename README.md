@@ -19,8 +19,8 @@ Mobile-first construction management web app built with Next.js, Tailwind CSS, a
 2. Copy `.env.example` to `.env.local` and add your Supabase credentials.
 
 3. Run the Supabase migration in your project’s SQL Editor:
-   - Open `supabase/migrations/001_initial_schema.sql`
-   - Execute it in Supabase Dashboard → SQL Editor
+   - `001_initial_schema.sql` then `002_documents_metadata_update.sql`
+   - Run each in Supabase Dashboard → SQL Editor
 
 4. Run the dev server:
    ```bash
@@ -46,6 +46,12 @@ See `supabase/migrations/001_initial_schema.sql` for the full schema including:
 - `invoices` – Billing status
 - `documents` – File references (.docx, .xlsx)
 - `milestones` – Calendar entries
+
+## Storage (Documents)
+
+1. In Supabase Dashboard → Storage, create a bucket named `project_files`.
+2. Configure RLS policies so users can only access files for projects they belong to.
+3. Files are stored as `{project_id}/{uuid}_{filename}`.
 
 ## Deployment
 
