@@ -6,6 +6,7 @@ import { Providers } from "@/components/Providers";
 import { AccountButton } from "@/components/AccountButton";
 import { HeaderNav } from "@/components/HeaderNav";
 import { ProjectDropdown } from "@/components/ProjectDropdown";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 import "./globals.css";
 
 const roboto = Roboto({
@@ -76,17 +77,7 @@ export default function RootLayout({
         </main>
 
         {/* Mobile bottom navigation (thumb-friendly) */}
-        <nav
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-outline safe-area-inset-bottom"
-          aria-label="Fő navigáció"
-        >
-          <div className="flex items-center justify-around h-16">
-            <NavLink href="/" label="Kezdőlap" icon="dashboard" />
-            <NavLink href="/documents" label="Dokumentumok" icon="documents" />
-            <NavLink href="/calendar" label="Naptár" icon="calendar" />
-            <NavLink href="/finance" label="Pénzügy" icon="finance" />
-          </div>
-        </nav>
+        <MobileBottomNav />
 
         {/* Mobile drawer overlay (for larger screens / drawer fallback) */}
         <MobileDrawer />

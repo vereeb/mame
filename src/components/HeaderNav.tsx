@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useProject } from "@/contexts/ProjectContext";
 
 type NavLinkItem = {
   href: string;
@@ -13,11 +14,13 @@ const BASE_LINKS: NavLinkItem[] = [
   { href: "/", label: "Kezdőlap" },
   { href: "/documents", label: "Dokumentumok" },
   { href: "/calendar", label: "Naptár" },
-  { href: "/finance", label: "Pénzügy" },
 ];
 
 export function HeaderNav() {
+  const { projectId } = useProject();
   const [isSuperuser, setIsSuperuser] = useState(false);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [isOwnerForProject, setIsOwnerForProject] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,12 +51,15 @@ export function HeaderNav() {
 
         if (!userId) {
           if (!cancelled) setIsSuperuser(false);
+          if (!cancelled) setAuthUserId(null);
           return;
         }
 
+        if (!cancelled) setAuthUserId(userId);
         await loadSuperuserForUserId(userId);
       } catch {
         if (!cancelled) setIsSuperuser(false);
+        if (!cancelled) setAuthUserId(null);
       }
     }
 
@@ -65,9 +71,11 @@ export function HeaderNav() {
       const userId = session?.user?.id;
       if (!userId) {
         if (!cancelled) setIsSuperuser(false);
+        if (!cancelled) setAuthUserId(null);
         return;
       }
 
+      if (!cancelled) setAuthUserId(userId);
       void loadSuperuserForUserId(userId);
     });
 
@@ -77,9 +85,42 @@ export function HeaderNav() {
     };
   }, []);
 
-  const links = isSuperuser
-    ? [...BASE_LINKS, { href: "/admin", label: "Admin" }]
-    : BASE_LINKS;
+  useEffect(() => {
+    let cancelled = false;
+
+    const supabase = createClient();
+    if (!supabase) {
+      setIsOwnerForProject(false);
+      return;
+    }
+
+    if (!projectId || !authUserId) {
+      setIsOwnerForProject(false);
+      return;
+    }
+
+    void (async () => {
+      const { data } = await supabase.rpc("user_has_project_access", {
+        p_user_id: authUserId,
+        p_project_id: projectId,
+        p_min_role: "owner",
+      });
+
+      if (!cancelled) setIsOwnerForProject(Boolean(data));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUserId, projectId]);
+
+  const canViewFinance = isSuperuser || isOwnerForProject;
+
+  const links: NavLinkItem[] = [
+    ...BASE_LINKS,
+    ...(canViewFinance ? [{ href: "/finance", label: "Pénzügy" }] : []),
+    ...(isSuperuser ? [{ href: "/admin", label: "Admin" }] : []),
+  ];
 
   return (
     <div className="hidden md:flex items-center gap-1">
