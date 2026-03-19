@@ -13,7 +13,8 @@ type Project = {
   project_kind: ProjectKind;
 };
 type Laborer = { id: string; name: string; daily_wage: number; email: string | null };
-type ProjectLaborerMember = { project_id: string; laborer_id: string };
+type LaborerRole = "owner" | "admin" | "member" | "viewer";
+type ProjectLaborerMember = { project_id: string; laborer_id: string; role: LaborerRole };
 type ProjectSubcontractorMember = { project_id: string; subcontractor_id: string };
 type Subcontractor = {
   id: string;
@@ -50,7 +51,10 @@ export default function AdminPage() {
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingProjectKind, setEditingProjectKind] = useState<ProjectKind>("Sajat projekt");
   const [savingProjectEdit, setSavingProjectEdit] = useState(false);
-  const [selectedByProject, setSelectedByProject] = useState<Record<string, string[]>>({});
+  // projectId -> laborerId -> role
+  const [selectedByProject, setSelectedByProject] = useState<
+    Record<string, Record<string, LaborerRole>>
+  >({});
   const [selectedSubcontractorsByProject, setSelectedSubcontractorsByProject] = useState<Record<string, string[]>>({});
 
   const [newLaborerName, setNewLaborerName] = useState("");
@@ -116,7 +120,9 @@ export default function AdminPage() {
               .select("id, name, description, address, project_kind")
               .order("name"),
             supabase.from("laborers").select("id, name, daily_wage, email").order("name"),
-            supabase.from("project_laborer_members").select("project_id, laborer_id"),
+            supabase
+              .from("project_laborer_members")
+              .select("project_id, laborer_id, role"),
           ]);
 
           if (projectsErr) throw new Error(projectsErr.message);
@@ -132,11 +138,15 @@ export default function AdminPage() {
             setMemberships(allMemberships);
             setSubcontractorsWarning(null);
 
-            const nextSelectedByProject: Record<string, string[]> = {};
+            const nextSelectedByProject: Record<string, Record<string, LaborerRole>> = {};
             allProjects.forEach((p) => {
-              nextSelectedByProject[p.id] = allMemberships
+              const perProject: Record<string, LaborerRole> = {};
+              allMemberships
                 .filter((m) => m.project_id === p.id)
-                .map((m) => m.laborer_id);
+                .forEach((m) => {
+                  perProject[m.laborer_id] = m.role;
+                });
+              nextSelectedByProject[p.id] = perProject;
             });
             setSelectedByProject(nextSelectedByProject);
           }
@@ -210,7 +220,8 @@ export default function AdminPage() {
     const currentlyAssigned = memberships
       .filter((m) => m.project_id === projectId)
       .map((m) => m.laborer_id);
-    const selected = selectedByProject[projectId] ?? [];
+    const selectedRoles = selectedByProject[projectId] ?? {};
+    const selected = Object.keys(selectedRoles);
 
     const toAdd = selected.filter((id) => !currentlyAssigned.includes(id));
     const toRemove = currentlyAssigned.filter((id) => !selected.includes(id));
@@ -220,6 +231,7 @@ export default function AdminPage() {
         const rows = toAdd.map((laborerId) => ({
           project_id: projectId,
           laborer_id: laborerId,
+          role: selectedRoles[laborerId] ?? "member",
         }));
         const { error } = await supabase.from("project_laborer_members").insert(rows);
         if (error) throw error;
@@ -236,7 +248,7 @@ export default function AdminPage() {
 
       const { data: refreshedMemberships, error: refreshErr } = await supabase
         .from("project_laborer_members")
-        .select("project_id, laborer_id");
+        .select("project_id, laborer_id, role");
       if (refreshErr) throw refreshErr;
       setMemberships((refreshedMemberships ?? []) as ProjectLaborerMember[]);
     } catch (e: any) {
@@ -681,7 +693,7 @@ export default function AdminPage() {
                 )}
 
                 {projects.map((project) => {
-                  const selected = selectedByProject[project.id] ?? [];
+                  const selectedRoles = selectedByProject[project.id] ?? {};
                   const selectedSubcontractors = selectedSubcontractorsByProject[project.id] ?? [];
                   const isEditing = editingProjectId === project.id;
                   const effectiveProjectKind = isEditing ? editingProjectKind : project.project_kind;
@@ -749,33 +761,69 @@ export default function AdminPage() {
                           {!isSubcontractorProject && (
                             <div className="space-y-1">
                               {laborers.map((laborer) => {
-                                const checked = selected.includes(laborer.id);
+                                const checked = Boolean(selectedRoles[laborer.id]);
+                                const currentRole = selectedRoles[laborer.id] ?? "member";
                                 return (
-                                  <label
+                                  <div
                                     key={laborer.id}
-                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-variant cursor-pointer"
+                                    className="flex items-center justify-between gap-3 px-2 py-1.5 rounded-md hover:bg-surface-variant"
                                   >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={(e) => {
-                                        setSelectedByProject((prev) => {
-                                          const current = prev[project.id] ?? [];
-                                          const next = e.target.checked
-                                            ? [...current, laborer.id]
-                                            : current.filter((id) => id !== laborer.id);
-                                          return {
-                                            ...prev,
-                                            [project.id]: next,
-                                          };
-                                        });
-                                      }}
-                                      className="h-4 w-4 rounded border-outline text-primary focus:ring-primary/50"
-                                    />
-                                    <span className="font-sans text-sm text-black">
-                                      {laborer.name}
-                                    </span>
-                                  </label>
+                                    <label
+                                      className="flex items-center gap-2 cursor-pointer flex-1"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={(e) => {
+                                          setSelectedByProject((prev) => {
+                                            const current = prev[project.id] ?? {};
+                                            const next = { ...current };
+
+                                            if (e.target.checked) {
+                                              next[laborer.id] = next[laborer.id] ?? "member";
+                                            } else {
+                                              delete next[laborer.id];
+                                            }
+
+                                            return {
+                                              ...prev,
+                                              [project.id]: next,
+                                            };
+                                          });
+                                        }}
+                                        className="h-4 w-4 rounded border-outline text-primary focus:ring-primary/50"
+                                      />
+                                      <span className="font-sans text-sm text-black">
+                                        {laborer.name}
+                                      </span>
+                                    </label>
+
+                                    {checked && (
+                                      <select
+                                        value={currentRole}
+                                        onChange={(e) => {
+                                          const role = e.target.value as LaborerRole;
+                                          setSelectedByProject((prev) => {
+                                            const current = prev[project.id] ?? {};
+                                            return {
+                                              ...prev,
+                                              [project.id]: {
+                                                ...current,
+                                                [laborer.id]: role,
+                                              },
+                                            };
+                                          });
+                                        }}
+                                        className="h-8 px-2 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                        aria-label={`Role for ${laborer.name}`}
+                                      >
+                                        <option value="viewer">viewer</option>
+                                        <option value="member">member</option>
+                                        <option value="admin">admin</option>
+                                        <option value="owner">owner</option>
+                                      </select>
+                                    )}
+                                  </div>
                                 );
                               })}
                             </div>
