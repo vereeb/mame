@@ -21,8 +21,11 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "Promenade | Építésmenedzsment",
+  title: "Mame",
   description: "Mobil-first építésmenedzsment webalkalmazás",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({
