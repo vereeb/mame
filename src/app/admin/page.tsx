@@ -372,7 +372,7 @@ export default function AdminPage() {
       if (memberErr) throw memberErr;
 
       setProjects((prev) => [...prev, newProject].sort((a, b) => a.name.localeCompare(b.name)));
-      setSelectedByProject((prev) => ({ ...prev, [newProject.id]: [] }));
+      setSelectedByProject((prev) => ({ ...prev, [newProject.id]: {} }));
       setNewProjectName("");
       setNewProjectDescription("");
       setNewProjectAddress("");

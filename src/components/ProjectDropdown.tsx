@@ -232,7 +232,7 @@ export function ProjectDropdown() {
                       if (memberErr) throw memberErr;
 
                       setProjectId(newProjectId);
-                      await fetchProjects();
+                      await fetchProjects(supabase, false);
                       setCreateOpen(false);
                     } catch (e: any) {
                       setCreateError(
