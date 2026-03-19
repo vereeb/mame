@@ -22,6 +22,14 @@ function isPhoto(fileType: string) {
   return PHOTO_TYPES.includes(fileType.toLowerCase());
 }
 
+function sanitizeFilename(fileName: string) {
+  return fileName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
     month: "short",
@@ -53,7 +61,7 @@ export default function DocumentsPage() {
     const supabase = createClient();
     if (!supabase) {
       setLoading(false);
-      setError("Supabase not configured");
+      setError("A Supabase nincs beállítva");
       return;
     }
     try {
@@ -69,7 +77,7 @@ export default function DocumentsPage() {
         setDocs((data ?? []) as Document[]);
       }
     } catch {
-      setError("Failed to load documents");
+      setError("Dokumentumok betöltése sikertelen");
       setDocs([]);
     } finally {
       setLoading(false);
@@ -99,21 +107,28 @@ export default function DocumentsPage() {
     setError(null);
 
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    const allowed = ["docx", "xlsx", "jpg", "jpeg", "png", "webp", "heic"];
+    const allowed = ["docx", "xlsx", "pdf", "jpg", "jpeg", "png", "webp", "heic"];
     if (!allowed.includes(ext)) {
-      setError("Allowed: .docx, .xlsx, .jpg, .png, .webp, .heic");
+      setError("Engedélyezett: .docx, .xlsx, .pdf, .jpg, .png, .webp, .heic");
       setUploading(false);
       return;
     }
 
-    const path = `${projectId}/${crypto.randomUUID()}_${file.name}`;
+    const safeName = sanitizeFilename(file.name);
+    const path = `${projectId}/${crypto.randomUUID()}_${safeName}`;
 
     const { error: uploadErr } = await supabase.storage
       .from("project_files")
       .upload(path, file, { upsert: false });
 
     if (uploadErr) {
-      setError(uploadErr.message);
+      if (uploadErr.message.toLowerCase().includes("bucket not found")) {
+        setError(
+          "A 'project_files' tárhely-bucket hiányzik. Futtasd a legfrissebb Supabase migrációkat, majd próbáld újra."
+        );
+      } else {
+        setError(uploadErr.message);
+      }
       setUploading(false);
       return;
     }
@@ -156,6 +171,35 @@ export default function DocumentsPage() {
     fetchDocs();
   }
 
+  async function viewFile(doc: Document) {
+    const supabase = createClient();
+    if (!supabase) {
+      setError("A Supabase nincs beállítva");
+      return;
+    }
+
+    setError(null);
+    const { data, error: signedUrlError } = await supabase.storage
+      .from("project_files")
+      .createSignedUrl(doc.file_path, 60 * 5);
+
+    if (signedUrlError || !data?.signedUrl) {
+      setError(signedUrlError?.message ?? "Fájl megnyitása sikertelen");
+      return;
+    }
+
+    const fileType = (doc.file_type ?? "").toLowerCase();
+    if (fileType === "docx" || fileType === "xlsx") {
+      const officeViewerUrl = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(
+        data.signedUrl
+      )}`;
+      window.open(officeViewerUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) uploadFile(file);
@@ -165,24 +209,28 @@ export default function DocumentsPage() {
   if (!projectId) {
     return (
       <div className="p-4 md:p-6 flex flex-col items-center justify-center min-h-[50vh] text-center">
-        <p className="font-serif text-lg text-black/70">Select a project to view documents.</p>
+        <p className="font-serif text-lg text-black/70">
+          Válassz egy projektet a dokumentumok megtekintéséhez.
+        </p>
       </div>
     );
   }
 
   return (
     <div className="p-4 md:p-6 pb-28 md:pb-8">
-      <h2 className="font-serif text-xl font-semibold text-black mb-4">Documents</h2>
+      <h2 className="font-serif text-xl font-semibold text-black mb-4">
+        Dokumentumok
+      </h2>
 
       {/* Search Bar */}
       <div className="mb-4">
         <input
           type="search"
-          placeholder="Search documents…"
+          placeholder="Dokumentumok keresése…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full h-12 pl-4 pr-4 rounded-xl border border-outline bg-surface-variant font-sans text-sm text-black placeholder:text-black/50 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-          aria-label="Search documents"
+          aria-label="Dokumentumok keresése"
         />
       </div>
 
@@ -199,7 +247,13 @@ export default function DocumentsPage() {
                 : "bg-surface-variant text-black/80 hover:bg-outline/50"
             }`}
           >
-            {t === "all" ? "All" : t === "docx" ? "Docs" : t === "xlsx" ? "Sheets" : "Photos"}
+            {t === "all"
+              ? "Összes"
+              : t === "docx"
+                ? "Dokumentumok"
+                : t === "xlsx"
+                  ? "Táblázatok"
+                  : "Fotók"}
           </button>
         ))}
       </div>
@@ -214,7 +268,9 @@ export default function DocumentsPage() {
       {loading && (
         <div className="mt-8 flex flex-col items-center justify-center py-12">
           <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="font-sans text-sm text-black/60">Loading documents…</p>
+          <p className="font-sans text-sm text-black/60">
+            Dokumentumok betöltése…
+          </p>
         </div>
       )}
 
@@ -223,8 +279,8 @@ export default function DocumentsPage() {
         <div className="mt-8 flex flex-col items-center justify-center py-12 text-center">
           <p className="font-sans text-sm text-black/60">
             {docs.length === 0
-              ? "No documents yet. Tap the + button to upload."
-              : "No documents match your search or filter."}
+              ? "Még nincsenek dokumentumok. A + gombra kattintva tölthetsz fel."
+              : "Nincs találat a keresés vagy szűrő alapján."}
           </p>
         </div>
       )}
@@ -236,6 +292,7 @@ export default function DocumentsPage() {
             <DocumentCard
               key={doc.id}
               doc={doc}
+              onView={() => void viewFile(doc)}
               onRename={() => {
                 setRenameDoc(doc);
                 setRenameValue(doc.display_name || doc.original_name || "");
@@ -251,7 +308,7 @@ export default function DocumentsPage() {
         onClick={() => fileInputRef.current?.click()}
         disabled={uploading}
         className="fixed bottom-24 right-4 md:bottom-6 md:right-6 w-14 h-14 rounded-full bg-primary text-black shadow-m3-fab flex items-center justify-center hover:opacity-90 active:scale-95 transition disabled:opacity-60 disabled:cursor-not-allowed z-30"
-        aria-label="Upload document"
+        aria-label="Dokumentum feltöltése"
       >
         {uploading ? (
           <div className="w-6 h-6 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -264,7 +321,7 @@ export default function DocumentsPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".docx,.xlsx,.jpg,.jpeg,.png,.webp,.heic"
+        accept=".docx,.xlsx,.pdf,.jpg,.jpeg,.png,.webp,.heic"
         onChange={handleFileChange}
         className="hidden"
       />
@@ -287,9 +344,11 @@ export default function DocumentsPage() {
 
 function DocumentCard({
   doc,
+  onView,
   onRename,
 }: {
   doc: Document;
+  onView: () => void;
   onRename: () => void;
 }) {
   const ft = doc.file_type?.toLowerCase();
@@ -326,7 +385,19 @@ function DocumentCard({
   const displayName = doc.display_name || doc.original_name || "Untitled";
 
   return (
-    <div className="rounded-xl border border-outline bg-white p-4 shadow-m3-1">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onView}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onView();
+        }
+      }}
+      aria-label={`View document ${displayName}`}
+      className="rounded-xl border border-outline bg-white p-4 shadow-m3-1 cursor-pointer hover:bg-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
+    >
       <div className="flex items-center gap-4">
         <div className={`shrink-0 w-12 h-12 rounded-lg flex items-center justify-center ${iconBg}`}>
           {Icon}
@@ -337,10 +408,14 @@ function DocumentCard({
         </div>
         <button
           type="button"
-          onClick={onRename}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRename();
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
           className="shrink-0 px-3 py-2 rounded-lg font-sans text-sm font-medium text-primary hover:bg-primary/10"
         >
-          Rename
+          Átnevezés
         </button>
       </div>
     </div>
@@ -371,14 +446,14 @@ function RenameDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h3 id="rename-dialog-title" className="font-serif text-lg font-semibold text-black mb-4">
-          Rename document
+          Dokumentum átnevezése
         </h3>
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="w-full h-12 px-4 rounded-lg border border-outline bg-surface-variant font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
-          placeholder="Display name"
+          placeholder="Megjelenített név"
         />
         <div className="flex gap-3 mt-6">
           <button
@@ -386,7 +461,7 @@ function RenameDialog({
             onClick={onCancel}
             className="flex-1 h-11 rounded-lg font-sans text-sm font-medium text-black/80 hover:bg-surface-variant"
           >
-            Cancel
+            Mégse
           </button>
           <button
             type="button"
@@ -394,7 +469,7 @@ function RenameDialog({
             disabled={!value.trim()}
             className="flex-1 h-11 rounded-lg font-sans text-sm font-medium bg-primary text-black disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
           >
-            Save
+            Mentés
           </button>
         </div>
       </div>

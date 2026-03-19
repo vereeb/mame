@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { Roboto, Lora } from "next/font/google";
+import Image from "next/image";
+import Link from "next/link";
 import { Providers } from "@/components/Providers";
+import { AccountButton } from "@/components/AccountButton";
+import { HeaderNav } from "@/components/HeaderNav";
 import { ProjectDropdown } from "@/components/ProjectDropdown";
 import "./globals.css";
 
@@ -17,8 +21,8 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "Promenade | Construction Management",
-  description: "Mobile-first construction management web app",
+  title: "Promenade | Építésmenedzsment",
+  description: "Mobil-first építésmenedzsment webalkalmazás",
 };
 
 export default function RootLayout({
@@ -37,12 +41,28 @@ export default function RootLayout({
         <header className="sticky top-0 z-50 w-full bg-white border-b border-outline shadow-m3-1">
           <div className="flex items-center justify-between h-14 px-4 gap-3">
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              <h1 className="font-serif text-lg font-semibold text-black shrink-0">
-                Promenade
-              </h1>
+              <Link href="/" className="shrink-0" aria-label="Promenade home">
+                <Image
+                  src="/logo.png"
+                  alt="Promenade logo"
+                  width={120}
+                  height={28}
+                  priority
+                  className="hidden h-7 w-auto md:block"
+                />
+                <Image
+                  src="/icon.png"
+                  alt="Promenade icon"
+                  width={28}
+                  height={28}
+                  priority
+                  className="block h-7 w-7 md:hidden"
+                />
+              </Link>
               <ProjectDropdown />
             </div>
-            <DesktopNav />
+            <HeaderNav />
+            <AccountButton />
             <MobileNavTrigger />
           </div>
         </header>
@@ -55,13 +75,13 @@ export default function RootLayout({
         {/* Mobile bottom navigation (thumb-friendly) */}
         <nav
           className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-outline safe-area-inset-bottom"
-          aria-label="Main navigation"
+          aria-label="Fő navigáció"
         >
           <div className="flex items-center justify-around h-16">
-            <NavLink href="/" label="Dashboard" icon="dashboard" />
-            <NavLink href="/documents" label="Documents" icon="documents" />
-            <NavLink href="/calendar" label="Calendar" icon="calendar" />
-            <NavLink href="/finance" label="Finance" icon="finance" />
+            <NavLink href="/" label="Kezdőlap" icon="dashboard" />
+            <NavLink href="/documents" label="Dokumentumok" icon="documents" />
+            <NavLink href="/calendar" label="Naptár" icon="calendar" />
+            <NavLink href="/finance" label="Pénzügy" icon="finance" />
           </div>
         </nav>
 
@@ -79,7 +99,7 @@ function MobileNavTrigger() {
     <button
       type="button"
       className="md:hidden p-2 -mr-2 rounded-full text-black hover:bg-surface-variant active:bg-outline"
-      aria-label="Open menu"
+      aria-label="Menü megnyitása"
     >
       <svg
         className="w-6 h-6"
@@ -98,29 +118,6 @@ function MobileNavTrigger() {
   );
 }
 
-// --- Desktop nav links (hidden on mobile, shown on md+) ---
-function DesktopNav() {
-  const links = [
-    { href: "/", label: "Dashboard" },
-    { href: "/documents", label: "Documents" },
-    { href: "/calendar", label: "Calendar" },
-    { href: "/finance", label: "Finance" },
-  ];
-  return (
-    <div className="hidden md:flex items-center gap-1">
-      {links.map(({ href, label }) => (
-        <a
-          key={href}
-          href={href}
-          className="px-3 py-2 rounded-lg text-sm font-medium text-black hover:bg-surface-variant hover:text-primary"
-        >
-          {label}
-        </a>
-      ))}
-    </div>
-  );
-}
-
 // --- Mobile Bottom Nav Link ---
 function NavLink({
   href,
@@ -132,14 +129,14 @@ function NavLink({
   icon: string;
 }) {
   return (
-    <a
+    <Link
       href={href}
       className="flex flex-col items-center justify-center flex-1 h-full min-w-0 py-2 text-xs font-medium text-black hover:text-primary active:text-primary"
       aria-label={label}
     >
       <NavIcon name={icon} />
       <span className="mt-1 truncate max-w-full">{label}</span>
-    </a>
+    </Link>
   );
 }
 
@@ -180,34 +177,34 @@ function MobileDrawer() {
       <div className="flex flex-col h-full pt-14">
         <div className="p-4 border-b border-outline">
           <span className="font-serif text-sm font-semibold text-black">
-            Menu
+            Menü
           </span>
         </div>
         <nav className="flex flex-col p-4 gap-1">
-          <a
+          <Link
             href="/"
             className="px-4 py-3 rounded-lg text-sm font-medium text-black hover:bg-surface-variant"
           >
-            Dashboard
-          </a>
-          <a
+            Kezdőlap
+          </Link>
+          <Link
             href="/documents"
             className="px-4 py-3 rounded-lg text-sm font-medium text-black hover:bg-surface-variant"
           >
-            Documents
-          </a>
-          <a
+            Dokumentumok
+          </Link>
+          <Link
             href="/calendar"
             className="px-4 py-3 rounded-lg text-sm font-medium text-black hover:bg-surface-variant"
           >
-            Calendar
-          </a>
-          <a
+            Naptár
+          </Link>
+          <Link
             href="/finance"
             className="px-4 py-3 rounded-lg text-sm font-medium text-black hover:bg-surface-variant"
           >
-            Finance
-          </a>
+            Pénzügy
+          </Link>
         </nav>
       </div>
     </aside>

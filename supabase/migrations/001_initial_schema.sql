@@ -15,7 +15,7 @@ CREATE TYPE invoice_status AS ENUM ('draft', 'sent', 'paid', 'overdue');
 -- -----------------------------------------------------------------------------
 -- 2. EXTENSIONS
 -- -----------------------------------------------------------------------------
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
 
 -- -----------------------------------------------------------------------------
 -- 3. CORE TABLES
@@ -33,7 +33,7 @@ CREATE TABLE public.profiles (
 
 -- Projects: The central entity; all data is scoped by project_id
 CREATE TABLE public.projects (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   name TEXT NOT NULL,
   description TEXT,
   address TEXT,
@@ -46,7 +46,7 @@ CREATE TABLE public.projects (
 
 -- Project members: Links users to projects with roles (multi-user access)
 CREATE TABLE public.project_members (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   role user_role NOT NULL DEFAULT 'member',
@@ -59,7 +59,7 @@ CREATE INDEX idx_project_members_user ON public.project_members(user_id);
 
 -- Laborers: Workers on a project (names, daily wages)
 CREATE TABLE public.laborers (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   daily_wage NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -72,7 +72,7 @@ CREATE INDEX idx_laborers_project ON public.laborers(project_id);
 
 -- Work logs: Daily work entries for laborers
 CREATE TABLE public.work_logs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   laborer_id UUID NOT NULL REFERENCES public.laborers(id) ON DELETE CASCADE,
   work_date DATE NOT NULL,
   hours_worked NUMERIC(5, 2) NOT NULL DEFAULT 0,
@@ -86,7 +86,7 @@ CREATE INDEX idx_work_logs_date ON public.work_logs(work_date);
 
 -- Expenses: Categorized by materials or services
 CREATE TABLE public.expenses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   category expense_category NOT NULL,
   amount NUMERIC(12, 2) NOT NULL,
@@ -102,7 +102,7 @@ CREATE INDEX idx_expenses_category ON public.expenses(category);
 
 -- Invoices: Billing tracking
 CREATE TABLE public.invoices (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   invoice_number TEXT NOT NULL,
   amount NUMERIC(12, 2) NOT NULL,
@@ -117,7 +117,7 @@ CREATE INDEX idx_invoices_project ON public.invoices(project_id);
 
 -- Documents: References to uploaded .docx/.xlsx files (stored in Supabase Storage)
 CREATE TABLE public.documents (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   file_name TEXT NOT NULL,
   file_path TEXT NOT NULL,
@@ -131,7 +131,7 @@ CREATE INDEX idx_documents_project ON public.documents(project_id);
 
 -- Calendar milestones
 CREATE TABLE public.milestones (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
   project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,

@@ -19,8 +19,8 @@ Mobile-first construction management web app built with Next.js, Tailwind CSS, a
 2. Copy `.env.example` to `.env.local` and add your Supabase credentials.
 
 3. Run the Supabase migration in your project’s SQL Editor:
-   - `001_initial_schema.sql` then `002_documents_metadata_update.sql`
-   - Run each in Supabase Dashboard → SQL Editor
+   - `001_initial_schema.sql`, `002_documents_metadata_update.sql`, `003_seed_dummy_projects.sql`
+   - Run each in Supabase Dashboard → SQL Editor (003 adds 2 test projects)
 
 4. Run the dev server:
    ```bash
