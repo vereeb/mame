@@ -19,17 +19,13 @@ export function ProjectDropdown() {
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
 
-  const fetchProjects = useCallback(async () => {
-    const supabase = createClient();
-    if (!supabase) {
-      setProjects([]);
-      return;
-    }
-
+  const fetchProjects = useCallback(async (supabase: any, cancelled: boolean) => {
     const { data, error } = await supabase
       .from("projects")
       .select("id, name")
       .order("name");
+
+    if (cancelled) return;
 
     if (error) {
       setProjects([]);
@@ -42,45 +38,64 @@ export function ProjectDropdown() {
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
-      const supabase = createClient();
-      if (!supabase) {
-        if (!cancelled) setLoading(false);
-        return;
-      }
+    const supabase = createClient();
+    if (!supabase) {
+      if (!cancelled) setLoading(false);
+      return;
+    }
 
+    async function refresh() {
+      setLoading(true);
       try {
-        setLoading(true);
-        await fetchProjects();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-        const { data: authData } = await supabase.auth.getUser();
-        if (!authData?.user) {
-          if (!cancelled) setIsSuperuser(false);
+        const userId =
+          session?.user?.id ??
+          (await supabase.auth.getUser()).data.user?.id ??
+          null;
+
+        if (!userId) {
+          if (!cancelled) {
+            setIsSuperuser(false);
+            setProjects([]);
+          }
           return;
         }
 
-        // `profiles.is_superuser` is protected by RLS (users can read their own profile)
-        const { data: profileData, error: profileErr } = await supabase
+        // `profiles.is_superuser` is protected by RLS (users can read their own profile).
+        const { data: profileData } = await supabase
           .from("profiles")
           .select("is_superuser")
-          .eq("id", authData.user.id)
+          .eq("id", userId)
           .single();
 
-        if (profileErr) {
-          if (!cancelled) setIsSuperuser(false);
-          return;
-        }
-
         if (!cancelled) setIsSuperuser(Boolean(profileData?.is_superuser));
+
+        await fetchProjects(supabase, cancelled);
       } catch {
-        if (!cancelled) setIsSuperuser(false);
+        if (!cancelled) {
+          setIsSuperuser(false);
+          setProjects([]);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+    }
+
+    void refresh();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Session becoming available is what fixes the "empty until hard refresh" issue on Vercel.
+      if (!cancelled) void refresh();
+    });
 
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, []);
 

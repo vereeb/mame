@@ -22,27 +22,58 @@ export function HeaderNav() {
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
-      const supabase = createClient();
-      if (!supabase) return;
+    const supabase = createClient();
+    if (!supabase) return;
 
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) return;
-
+    async function loadSuperuserForUserId(userId: string) {
       const { data } = await supabase
         .from("profiles")
         .select("is_superuser")
         .eq("id", userId)
         .single();
 
-      if (!cancelled) {
-        setIsSuperuser(Boolean(data?.is_superuser));
+      if (!cancelled) setIsSuperuser(Boolean(data?.is_superuser));
+    }
+
+    async function loadInitial() {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const userId =
+          session?.user?.id ??
+          (await supabase.auth.getUser()).data.user?.id ??
+          null;
+
+        if (!userId) {
+          if (!cancelled) setIsSuperuser(false);
+          return;
+        }
+
+        await loadSuperuserForUserId(userId);
+      } catch {
+        if (!cancelled) setIsSuperuser(false);
       }
-    })();
+    }
+
+    void loadInitial();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      const userId = session?.user?.id;
+      if (!userId) {
+        if (!cancelled) setIsSuperuser(false);
+        return;
+      }
+
+      void loadSuperuserForUserId(userId);
+    });
 
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, []);
 
