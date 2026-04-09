@@ -114,7 +114,7 @@ export function ProjectPlannedCosts({ projectId }: { projectId: string | null })
   if (!projectId) {
     return (
       <p className="text-sm text-black/60 font-sans">
-        Válassz egy konkrét projektet a fejlécben — a naptár „Tervezett kiadás” tételei itt jelennek meg, és
+        Válassz egy konkrét projektet a fejlécben — a naptár költség tételei itt jelennek meg, és
         itt adhatsz hozzá újakat.
       </p>
     );
@@ -123,8 +123,8 @@ export function ProjectPlannedCosts({ projectId }: { projectId: string | null })
   return (
     <div className="space-y-3">
       <p className="text-sm text-black/60 font-sans">
-        A lista a naptárban rögzített <strong className="text-black/80">tervezett kiadásokat</strong>{" "}
-        (Kiadás típus) tartalmazza ehhez a projekthez. Az összeg a naptárban megadott összegekből számolódik.
+        A lista a naptárban rögzített <strong className="text-black/80">költségeket</strong> tartalmazza ehhez a
+        projekthez (a naptárban „Kiadás” típusként). Az összeg a naptárban megadott összegekből számolódik.
       </p>
 
       {error && (
@@ -149,7 +149,7 @@ export function ProjectPlannedCosts({ projectId }: { projectId: string | null })
       ) : rows.length === 0 ? (
         <div className="space-y-3">
           <p className="text-sm text-black/55 font-sans py-1">
-            Még nincs tervezett kiadás ehhez a projekthez. Adj hozzá a gombbal, vagy a Naptárban.
+            Még nincs költség ehhez a projekthez. Adj hozzá a gombbal, vagy a Naptárban.
           </p>
           <div className="rounded-xl border border-outline bg-white px-3 py-3 flex justify-between items-center font-sans text-sm">
             <span className="font-semibold text-black">Összesen</span>
@@ -215,7 +215,7 @@ export function ProjectPlannedCosts({ projectId }: { projectId: string | null })
               id="planned-cost-modal-title"
               className="font-serif text-lg font-semibold text-black mb-1"
             >
-              Új tervezett kiadás
+              Új költség
             </h3>
             <p className="font-sans text-xs text-black/60 mb-4">
               Ugyanaz a tétel jelenik meg a Naptárban (Kiadás).

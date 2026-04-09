@@ -89,58 +89,67 @@ export default function DocumentsPage() {
     return true;
   });
 
-  async function uploadFile(file: File) {
-    if (scope.kind !== "single") return;
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList?.length || scope.kind !== "single") return;
     const supabase = createClient();
     if (!supabase) return;
 
+    const files = Array.from(fileList);
     setUploading(true);
     setError(null);
 
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     const allowed = ["docx", "xlsx", "pdf", "jpg", "jpeg", "png", "webp", "heic"];
-    if (!allowed.includes(ext)) {
-      setError("Engedélyezett: .docx, .xlsx, .pdf, .jpg, .png, .webp, .heic");
-      setUploading(false);
-      return;
-    }
+    const skipped: string[] = [];
 
-    const safeName = sanitizeFilename(file.name);
-    const path = `${scope.id}/${crypto.randomUUID()}_${safeName}`;
-
-    const { error: uploadErr } = await supabase.storage
-      .from("project_files")
-      .upload(path, file, { upsert: false });
-
-    if (uploadErr) {
-      if (uploadErr.message.toLowerCase().includes("bucket not found")) {
-        setError(
-          "A 'project_files' tárhely-bucket hiányzik. Futtasd a legfrissebb Supabase migrációkat, majd próbáld újra."
-        );
-      } else {
-        setError(uploadErr.message);
+    for (const file of files) {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!allowed.includes(ext)) {
+        skipped.push(file.name);
+        continue;
       }
-      setUploading(false);
-      return;
-    }
 
-    const { error: insertErr } = await supabase.from("documents").insert({
-      project_id: scope.id,
-      file_path: path,
-      original_name: file.name,
-      display_name: file.name,
-      file_type: ext,
-      category: "general",
-    });
+      const safeName = sanitizeFilename(file.name);
+      const path = `${scope.id}/${crypto.randomUUID()}_${safeName}`;
 
-    if (insertErr) {
-      setError(insertErr.message);
-      setUploading(false);
-      return;
+      const { error: uploadErr } = await supabase.storage
+        .from("project_files")
+        .upload(path, file, { upsert: false });
+
+      if (uploadErr) {
+        if (uploadErr.message.toLowerCase().includes("bucket not found")) {
+          setError(
+            "A 'project_files' tárhely-bucket hiányzik. Futtasd a legfrissebb Supabase migrációkat, majd próbáld újra."
+          );
+        } else {
+          setError(uploadErr.message);
+        }
+        setUploading(false);
+        void fetchDocs();
+        return;
+      }
+
+      const { error: insertErr } = await supabase.from("documents").insert({
+        project_id: scope.id,
+        file_path: path,
+        original_name: file.name,
+        display_name: file.name,
+        file_type: ext,
+        category: "general",
+      });
+
+      if (insertErr) {
+        setError(insertErr.message);
+        setUploading(false);
+        void fetchDocs();
+        return;
+      }
     }
 
     setUploading(false);
-    fetchDocs();
+    if (skipped.length > 0) {
+      setError(`Nem engedélyezett típus (kihagyva): ${skipped.join(", ")}`);
+    }
+    void fetchDocs();
   }
 
   async function renameFile(doc: Document, newName: string) {
@@ -164,8 +173,8 @@ export default function DocumentsPage() {
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    const { files } = e.target;
+    if (files?.length) void uploadFiles(files);
     e.target.value = "";
   };
 
@@ -293,10 +302,10 @@ export default function DocumentsPage() {
         title={
           uploadDisabled
             ? "Válassz egy konkrét projektet a feltöltéshez"
-            : "Dokumentum feltöltése"
+            : "Dokumentumok feltöltése (egy vagy több fájl)"
         }
         className="fixed bottom-24 right-4 md:bottom-6 md:right-6 w-14 h-14 rounded-full bg-primary text-black shadow-m3-fab flex items-center justify-center hover:opacity-90 active:scale-95 transition disabled:opacity-60 disabled:cursor-not-allowed z-30"
-        aria-label="Dokumentum feltöltése"
+        aria-label="Dokumentumok feltöltése, több fájl is választható"
       >
         {uploading ? (
           <div className="w-6 h-6 border-2 border-black/30 border-t-black rounded-full animate-spin" />
@@ -309,9 +318,11 @@ export default function DocumentsPage() {
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         accept=".docx,.xlsx,.pdf,.jpg,.jpeg,.png,.webp,.heic"
         onChange={handleFileChange}
         className="hidden"
+        aria-label="Dokumentumok feltöltése, több fájl is választható"
       />
 
       {/* Rename Dialog */}

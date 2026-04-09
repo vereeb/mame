@@ -7,14 +7,16 @@ import { isAllProjects } from "@/lib/projectScope";
 import { userHasOwnerOnAnyProject } from "@/lib/ownerAccess";
 
 /**
- * Desktop/mobile nav: show Calendar + Finance only for superusers or users with
- * owner-level access on the selected project, or on any project when "Összes projekt" is selected.
+ * Desktop/mobile nav:
+ * - Calendar + Finance: superuser or owner on the current selection (or any listed project when „Összes projekt”).
+ * - Munkanapló: superuser or owner on at least one accessible project (independent of selection).
  */
 export function useOwnerOnlyNav() {
   const { projectId, accessibleProjects, projectsDirectoryLoaded } = useProject();
   const [isSuperuser, setIsSuperuser] = useState(false);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [isOwnerForProject, setIsOwnerForProject] = useState(false);
+  const [isOwnerOnAnyAccessibleProject, setIsOwnerOnAnyAccessibleProject] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,7 +125,38 @@ export function useOwnerOnlyNav() {
     };
   }, [authUserId, projectId, accessibleProjects, projectsDirectoryLoaded]);
 
-  const canViewOwnerOnlyPages = isSuperuser || isOwnerForProject;
+  useEffect(() => {
+    let cancelled = false;
 
-  return { canViewOwnerOnlyPages, isSuperuser };
+    const supabase = createClient();
+    if (!supabase || !authUserId) {
+      setIsOwnerOnAnyAccessibleProject(false);
+      return;
+    }
+
+    if (!projectsDirectoryLoaded) {
+      setIsOwnerOnAnyAccessibleProject(false);
+      return;
+    }
+
+    const ids = accessibleProjects.map((p) => p.id);
+    if (ids.length === 0) {
+      setIsOwnerOnAnyAccessibleProject(false);
+      return;
+    }
+
+    void (async () => {
+      const ok = await userHasOwnerOnAnyProject(supabase, authUserId, ids);
+      if (!cancelled) setIsOwnerOnAnyAccessibleProject(ok);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUserId, accessibleProjects, projectsDirectoryLoaded]);
+
+  const canViewOwnerOnlyPages = isSuperuser || isOwnerForProject;
+  const canViewMunkanaploNav = isSuperuser || isOwnerOnAnyAccessibleProject;
+
+  return { canViewOwnerOnlyPages, canViewMunkanaploNav, isSuperuser };
 }

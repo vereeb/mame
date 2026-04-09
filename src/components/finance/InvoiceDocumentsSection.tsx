@@ -78,57 +78,66 @@ export function InvoiceDocumentsSection({
     void fetchDocs();
   }, [fetchDocs]);
 
-  async function uploadFile(file: File) {
-    if (scope.kind !== "single") return;
+  async function uploadFiles(fileList: FileList | null) {
+    if (!fileList?.length || scope.kind !== "single") return;
     const supabase = createClient();
     if (!supabase) return;
 
+    const files = Array.from(fileList);
     setUploading(true);
     setError(null);
 
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     const allowed = ["docx", "xlsx", "pdf", "jpg", "jpeg", "png", "webp", "heic"];
-    if (!allowed.includes(ext)) {
-      setError("Engedélyezett: .docx, .xlsx, .pdf, .jpg, .png, .webp, .heic");
-      setUploading(false);
-      return;
-    }
+    const skipped: string[] = [];
 
-    const safeName = sanitizeFilename(file.name);
-    const path = `${scope.id}/${crypto.randomUUID()}_${safeName}`;
-
-    const { error: uploadErr } = await supabase.storage
-      .from("project_files")
-      .upload(path, file, { upsert: false });
-
-    if (uploadErr) {
-      if (uploadErr.message.toLowerCase().includes("bucket not found")) {
-        setError(
-          "A 'project_files' tárhely-bucket hiányzik. Futtasd a legfrissebb Supabase migrációkat, majd próbáld újra."
-        );
-      } else {
-        setError(uploadErr.message);
+    for (const file of files) {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      if (!allowed.includes(ext)) {
+        skipped.push(file.name);
+        continue;
       }
-      setUploading(false);
-      return;
-    }
 
-    const { error: insertErr } = await supabase.from("documents").insert({
-      project_id: scope.id,
-      file_path: path,
-      original_name: file.name,
-      display_name: file.name,
-      file_type: ext,
-      category: "invoice",
-    });
+      const safeName = sanitizeFilename(file.name);
+      const path = `${scope.id}/${crypto.randomUUID()}_${safeName}`;
 
-    if (insertErr) {
-      setError(insertErr.message);
-      setUploading(false);
-      return;
+      const { error: uploadErr } = await supabase.storage
+        .from("project_files")
+        .upload(path, file, { upsert: false });
+
+      if (uploadErr) {
+        if (uploadErr.message.toLowerCase().includes("bucket not found")) {
+          setError(
+            "A 'project_files' tárhely-bucket hiányzik. Futtasd a legfrissebb Supabase migrációkat, majd próbáld újra."
+          );
+        } else {
+          setError(uploadErr.message);
+        }
+        setUploading(false);
+        void fetchDocs();
+        return;
+      }
+
+      const { error: insertErr } = await supabase.from("documents").insert({
+        project_id: scope.id,
+        file_path: path,
+        original_name: file.name,
+        display_name: file.name,
+        file_type: ext,
+        category: "invoice",
+      });
+
+      if (insertErr) {
+        setError(insertErr.message);
+        setUploading(false);
+        void fetchDocs();
+        return;
+      }
     }
 
     setUploading(false);
+    if (skipped.length > 0) {
+      setError(`Nem engedélyezett típus (kihagyva): ${skipped.join(", ")}`);
+    }
     void fetchDocs();
   }
 
@@ -153,8 +162,8 @@ export function InvoiceDocumentsSection({
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) void uploadFile(file);
+    const { files } = e.target;
+    if (files?.length) void uploadFiles(files);
     e.target.value = "";
   };
 
@@ -224,15 +233,18 @@ export function InvoiceDocumentsSection({
                 </>
               )}
             </button>
-            <span className="font-sans text-xs text-black/50">PDF, Office, kép — mint a dokumentumoknál</span>
+            <span className="font-sans text-xs text-black/50">
+              PDF, Office, kép — egyszerre több fájl is kiválasztható
+            </span>
           </div>
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept=".docx,.xlsx,.pdf,.jpg,.jpeg,.png,.webp,.heic"
             onChange={handleFileChange}
             className="hidden"
-            aria-label="Számla feltöltése"
+            aria-label="Számlák feltöltése (több fájl is választható)"
           />
         </>
       )}

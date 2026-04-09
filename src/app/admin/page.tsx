@@ -11,6 +11,10 @@ type Project = {
   description: string | null;
   address: string | null;
   project_kind: ProjectKind;
+  offered_price: number | null;
+  client_name: string | null;
+  client_phone: string | null;
+  client_email: string | null;
 };
 type LaborerRole = "owner" | "admin" | "member" | "viewer";
 type Laborer = {
@@ -20,7 +24,6 @@ type Laborer = {
   email: string | null;
   access_role: LaborerRole;
 };
-type ProjectLaborerMember = { project_id: string; laborer_id: string };
 type ProjectSubcontractorMember = { project_id: string; subcontractor_id: string };
 type Subcontractor = {
   id: string;
@@ -39,16 +42,52 @@ const SUBCONTRACTOR_SPECIALTIES = [
   "FMV",
 ] as const;
 
+const PROJECT_SELECT_WITH_CLIENT =
+  "id, name, description, address, project_kind, offered_price, client_name, client_phone, client_email";
+const PROJECT_SELECT_BASE =
+  "id, name, description, address, project_kind, offered_price";
+
+function isMissingProjectsClientColumnsError(err: { message?: string } | null | undefined): boolean {
+  const m = (err?.message ?? "").toLowerCase();
+  return (
+    (m.includes("client_name") || m.includes("client_phone") || m.includes("client_email")) &&
+    (m.includes("does not exist") || m.includes("could not find"))
+  );
+}
+
+async function loadProjectsWithClientFallback(
+  supabase: ReturnType<typeof createClient>
+): Promise<{ data: Project[]; error: { message: string } | null; usedClientColumns: boolean }> {
+  const full = await supabase.from("projects").select(PROJECT_SELECT_WITH_CLIENT).order("name");
+  if (!full.error) {
+    return { data: (full.data ?? []) as Project[], error: null, usedClientColumns: true };
+  }
+  if (!isMissingProjectsClientColumnsError(full.error)) {
+    return { data: [], error: full.error, usedClientColumns: false };
+  }
+  const base = await supabase.from("projects").select(PROJECT_SELECT_BASE).order("name");
+  if (base.error) {
+    return { data: [], error: base.error, usedClientColumns: false };
+  }
+  const rows = (base.data ?? []).map((r) => ({
+    ...(r as object),
+    client_name: null,
+    client_phone: null,
+    client_email: null,
+  })) as Project[];
+  return { data: rows, error: null, usedClientColumns: false };
+}
+
 export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [isSuperuser, setIsSuperuser] = useState(false);
   const [section, setSection] = useState<AdminSection>("projects");
   const [projects, setProjects] = useState<Project[]>([]);
   const [laborers, setLaborers] = useState<Laborer[]>([]);
-  const [memberships, setMemberships] = useState<ProjectLaborerMember[]>([]);
   const [subcontractorMemberships, setSubcontractorMemberships] = useState<ProjectSubcontractorMember[]>([]);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [screenError, setScreenError] = useState<string | null>(null);
+  const [projectsClientSchemaWarning, setProjectsClientSchemaWarning] = useState<string | null>(null);
   const [subcontractorsWarning, setSubcontractorsWarning] = useState<string | null>(null);
   const [subcontractorAssignmentsWarning, setSubcontractorAssignmentsWarning] = useState<string | null>(null);
   const [savingProjectId, setSavingProjectId] = useState<string | null>(null);
@@ -56,8 +95,12 @@ export default function AdminPage() {
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingProjectKind, setEditingProjectKind] = useState<ProjectKind>("Sajat projekt");
+  const [editingProjectOfferedPrice, setEditingProjectOfferedPrice] = useState("");
+  const [editingProjectAddress, setEditingProjectAddress] = useState("");
+  const [editingClientName, setEditingClientName] = useState("");
+  const [editingClientPhone, setEditingClientPhone] = useState("");
+  const [editingClientEmail, setEditingClientEmail] = useState("");
   const [savingProjectEdit, setSavingProjectEdit] = useState(false);
-  const [selectedByProject, setSelectedByProject] = useState<Record<string, string[]>>({});
   const [selectedSubcontractorsByProject, setSelectedSubcontractorsByProject] = useState<Record<string, string[]>>({});
 
   const [newLaborerName, setNewLaborerName] = useState("");
@@ -69,6 +112,10 @@ export default function AdminPage() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [newProjectAddress, setNewProjectAddress] = useState("");
+  const [newProjectOfferedPrice, setNewProjectOfferedPrice] = useState("");
+  const [newProjectClientName, setNewProjectClientName] = useState("");
+  const [newProjectClientPhone, setNewProjectClientPhone] = useState("");
+  const [newProjectClientEmail, setNewProjectClientEmail] = useState("");
   const [newProjectKind, setNewProjectKind] = useState<ProjectKind>("Sajat projekt");
   const [creatingProject, setCreatingProject] = useState(false);
   const [editingLaborerId, setEditingLaborerId] = useState<string | null>(null);
@@ -115,42 +162,27 @@ export default function AdminPage() {
         }
 
         if (superuser) {
-          const [
-            { data: projectsData, error: projectsErr },
-            { data: laborersData, error: laborersErr },
-            { data: membershipData, error: membershipErr },
-          ] = await Promise.all([
-            supabase
-              .from("projects")
-              .select("id, name, description, address, project_kind")
-              .order("name"),
-            supabase
-              .from("laborers")
-              .select("id, name, daily_wage, email, access_role")
-              .order("name"),
-            supabase.from("project_laborer_members").select("project_id, laborer_id"),
-          ]);
+          const projectLoad = await loadProjectsWithClientFallback(supabase);
+          if (projectLoad.error) throw new Error(projectLoad.error.message);
+          const allProjects = projectLoad.data;
 
-          if (projectsErr) throw new Error(projectsErr.message);
+          const { data: laborersData, error: laborersErr } = await supabase
+            .from("laborers")
+            .select("id, name, daily_wage, email, access_role")
+            .order("name");
+
           if (laborersErr) throw new Error(laborersErr.message);
-          if (membershipErr) throw new Error(membershipErr.message);
 
           if (!cancelled) {
-            const allProjects = (projectsData ?? []) as Project[];
+            setProjectsClientSchemaWarning(
+              projectLoad.usedClientColumns
+                ? null
+                : "A Megrendelő mezők oszlopai hiányoznak. Futtasd a Supabase SQL szerkesztőben a supabase/migrations/028_projects_client_fields.sql tartalmát, majd frissíts."
+            );
             const allLaborers = (laborersData ?? []) as Laborer[];
-            const allMemberships = (membershipData ?? []) as ProjectLaborerMember[];
             setProjects(allProjects);
             setLaborers(allLaborers);
-            setMemberships(allMemberships);
             setSubcontractorsWarning(null);
-
-            const nextSelectedByProject: Record<string, string[]> = {};
-            allProjects.forEach((p) => {
-              nextSelectedByProject[p.id] = allMemberships
-                .filter((m) => m.project_id === p.id)
-                .map((m) => m.laborer_id);
-            });
-            setSelectedByProject(nextSelectedByProject);
           }
 
           const { data: subcontractorsData, error: subcontractorsErr } = await supabase
@@ -186,7 +218,7 @@ export default function AdminPage() {
                 setSubcontractorMemberships(allSubMemberships);
                 setSubcontractorAssignmentsWarning(null);
                 const nextSelectedSubcontractorsByProject: Record<string, string[]> = {};
-                projectsData?.forEach((p: any) => {
+                allProjects.forEach((p) => {
                   nextSelectedSubcontractorsByProject[p.id] = allSubMemberships
                     .filter((m) => m.project_id === p.id)
                     .map((m) => m.subcontractor_id);
@@ -209,58 +241,9 @@ export default function AdminPage() {
     };
   }, []);
 
-  async function saveProjectLaborers(projectId: string) {
-    const supabase = createClient();
-    if (!supabase) {
-      setScreenError("A Supabase nincs beállítva");
-      return;
-    }
-
-    setScreenError(null);
-    setSavingProjectId(projectId);
-
-    const currentlyAssigned = memberships
-      .filter((m) => m.project_id === projectId)
-      .map((m) => m.laborer_id);
-    const selected = selectedByProject[projectId] ?? [];
-
-    const toAdd = selected.filter((id) => !currentlyAssigned.includes(id));
-    const toRemove = currentlyAssigned.filter((id) => !selected.includes(id));
-
-    try {
-      if (toAdd.length > 0) {
-        const rows = toAdd.map((laborerId) => ({
-          project_id: projectId,
-          laborer_id: laborerId,
-        }));
-        const { error } = await supabase.from("project_laborer_members").insert(rows);
-        if (error) throw error;
-      }
-
-      if (toRemove.length > 0) {
-        const { error } = await supabase
-          .from("project_laborer_members")
-          .delete()
-          .eq("project_id", projectId)
-          .in("laborer_id", toRemove);
-        if (error) throw error;
-      }
-
-      const { data: refreshedMemberships, error: refreshErr } = await supabase
-        .from("project_laborer_members")
-        .select("project_id, laborer_id");
-      if (refreshErr) throw refreshErr;
-      setMemberships((refreshedMemberships ?? []) as ProjectLaborerMember[]);
-    } catch (e: any) {
-      setScreenError(e?.message ?? "Projekt tagok mentése sikertelen");
-    } finally {
-      setSavingProjectId(null);
-    }
-  }
-
   async function deleteProject(project: Project) {
     const typedName = window.prompt(
-      `A törlés megerősítéséhez írd be pontosan a következőt: "${project.name}". A művelet törli a kapcsolódó munkavállalókat, dokumentumokat és hozzárendeléseket is.`
+      `A törlés megerősítéséhez írd be pontosan a következőt: "${project.name}". A művelet törli a projekthez kötött adatokat (pl. dokumentumok, beosztások); a globális munkavállalói sorok nem törlődnek.`
     );
     if (typedName !== project.name) {
       if (typedName !== null) {
@@ -282,17 +265,11 @@ export default function AdminPage() {
       if (error) throw error;
 
       setProjects((prev) => prev.filter((p) => p.id !== project.id));
-      setSelectedByProject((prev) => {
-        const next = { ...prev };
-        delete next[project.id];
-        return next;
-      });
       setSelectedSubcontractorsByProject((prev) => {
         const next = { ...prev };
         delete next[project.id];
         return next;
       });
-      setMemberships((prev) => prev.filter((m) => m.project_id !== project.id));
       setSubcontractorMemberships((prev) => prev.filter((m) => m.project_id !== project.id));
     } catch (e: any) {
       setScreenError(e?.message ?? "Projekt törlése sikertelen");
@@ -352,19 +329,49 @@ export default function AdminPage() {
       const userId = authData?.user?.id;
       if (!userId) throw new Error("Jelentkezz be szuperfelhasználóként");
 
-      const { data: projectInsert, error: projectErr } = await supabase
+      const op = newProjectOfferedPrice.trim();
+      const offeredNum = op === "" ? null : Number(op.replace(",", "."));
+      const baseInsert = {
+        name: newProjectName.trim(),
+        description: newProjectDescription.trim() || null,
+        address: newProjectAddress.trim() || null,
+        project_kind: newProjectKind,
+        offered_price:
+          offeredNum != null && Number.isFinite(offeredNum) && offeredNum >= 0 ? offeredNum : null,
+      };
+      let newProject: Project;
+      const withClient = await supabase
         .from("projects")
         .insert({
-          name: newProjectName.trim(),
-          description: newProjectDescription.trim() || null,
-          address: newProjectAddress.trim() || null,
-          project_kind: newProjectKind,
+          ...baseInsert,
+          client_name: newProjectClientName.trim() || null,
+          client_phone: newProjectClientPhone.trim() || null,
+          client_email: newProjectClientEmail.trim() || null,
         })
-        .select("id, name, description, address, project_kind")
+        .select(PROJECT_SELECT_WITH_CLIENT)
         .single();
-      if (projectErr) throw projectErr;
-
-      const newProject = projectInsert as Project;
+      if (withClient.error && isMissingProjectsClientColumnsError(withClient.error)) {
+        setProjectsClientSchemaWarning(
+          "A Megrendelő mezők oszlopai hiányoznak. Futtasd a Supabase SQL szerkesztőben a supabase/migrations/028_projects_client_fields.sql tartalmát, majd frissíts."
+        );
+        const withoutClient = await supabase
+          .from("projects")
+          .insert(baseInsert)
+          .select(PROJECT_SELECT_BASE)
+          .single();
+        if (withoutClient.error) throw withoutClient.error;
+        newProject = {
+          ...(withoutClient.data as object),
+          client_name: null,
+          client_phone: null,
+          client_email: null,
+        } as Project;
+      } else if (withClient.error) {
+        throw withClient.error;
+      } else {
+        setProjectsClientSchemaWarning(null);
+        newProject = withClient.data as Project;
+      }
 
       const { error: memberErr } = await supabase.from("project_members").insert({
         project_id: newProject.id,
@@ -380,10 +387,13 @@ export default function AdminPage() {
       if (profileRoleErr) throw profileRoleErr;
 
       setProjects((prev) => [...prev, newProject].sort((a, b) => a.name.localeCompare(b.name)));
-      setSelectedByProject((prev) => ({ ...prev, [newProject.id]: [] }));
       setNewProjectName("");
       setNewProjectDescription("");
       setNewProjectAddress("");
+      setNewProjectOfferedPrice("");
+      setNewProjectClientName("");
+      setNewProjectClientPhone("");
+      setNewProjectClientEmail("");
       setNewProjectKind("Sajat projekt");
     } catch (e: any) {
       setScreenError(e?.message ?? "Projekt létrehozása sikertelen");
@@ -466,7 +476,6 @@ export default function AdminPage() {
       if (error) throw error;
 
       setLaborers((prev) => prev.filter((l) => l.id !== laborer.id));
-      setMemberships((prev) => prev.filter((m) => m.laborer_id !== laborer.id));
       if (editingLaborerId === laborer.id) {
         cancelEditLaborer();
       }
@@ -479,12 +488,26 @@ export default function AdminPage() {
     setEditingProjectId(project.id);
     setEditingProjectName(project.name);
     setEditingProjectKind(project.project_kind);
+    setEditingProjectOfferedPrice(
+      project.offered_price != null && Number.isFinite(Number(project.offered_price))
+        ? String(project.offered_price)
+        : ""
+    );
+    setEditingProjectAddress(project.address ?? "");
+    setEditingClientName(project.client_name ?? "");
+    setEditingClientPhone(project.client_phone ?? "");
+    setEditingClientEmail(project.client_email ?? "");
   }
 
   function cancelEditProject() {
     setEditingProjectId(null);
     setEditingProjectName("");
     setEditingProjectKind("Sajat projekt");
+    setEditingProjectOfferedPrice("");
+    setEditingProjectAddress("");
+    setEditingClientName("");
+    setEditingClientPhone("");
+    setEditingClientEmail("");
   }
 
   async function saveEditProject() {
@@ -498,18 +521,50 @@ export default function AdminPage() {
     setSavingProjectEdit(true);
     setScreenError(null);
     try {
-      const { data, error } = await supabase
+      const op = editingProjectOfferedPrice.trim();
+      const offeredNum = op === "" ? null : Number(op.replace(",", "."));
+      const baseUpdate = {
+        name: editingProjectName.trim(),
+        project_kind: editingProjectKind,
+        offered_price:
+          offeredNum != null && Number.isFinite(offeredNum) && offeredNum >= 0 ? offeredNum : null,
+        address: editingProjectAddress.trim() || null,
+      };
+      let updatedProject: Project;
+      const withClient = await supabase
         .from("projects")
         .update({
-          name: editingProjectName.trim(),
-          project_kind: editingProjectKind,
+          ...baseUpdate,
+          client_name: editingClientName.trim() || null,
+          client_phone: editingClientPhone.trim() || null,
+          client_email: editingClientEmail.trim() || null,
         })
         .eq("id", editingProjectId)
-        .select("id, name, description, address, project_kind")
+        .select(PROJECT_SELECT_WITH_CLIENT)
         .single();
-      if (error) throw error;
-
-      const updatedProject = data as Project;
+      if (withClient.error && isMissingProjectsClientColumnsError(withClient.error)) {
+        setProjectsClientSchemaWarning(
+          "A Megrendelő mezők oszlopai hiányoznak. Futtasd a Supabase SQL szerkesztőben a supabase/migrations/028_projects_client_fields.sql tartalmát, majd frissíts."
+        );
+        const withoutClient = await supabase
+          .from("projects")
+          .update(baseUpdate)
+          .eq("id", editingProjectId)
+          .select(PROJECT_SELECT_BASE)
+          .single();
+        if (withoutClient.error) throw withoutClient.error;
+        updatedProject = {
+          ...(withoutClient.data as object),
+          client_name: null,
+          client_phone: null,
+          client_email: null,
+        } as Project;
+      } else if (withClient.error) {
+        throw withClient.error;
+      } else {
+        setProjectsClientSchemaWarning(null);
+        updatedProject = withClient.data as Project;
+      }
       setProjects((prev) =>
         prev
           .map((p) => (p.id === editingProjectId ? updatedProject : p))
@@ -688,12 +743,18 @@ export default function AdminPage() {
             <>
               <h3 className="font-serif text-lg font-semibold text-black">Projektek</h3>
               <p className="mt-2 font-sans text-sm text-black/70">
-                Ha a projekt típusa „Saját projekt”, akkor munkavállalókat rendelsz hozzá (csak jelölőnégyzet — a jogosultságot a{" "}
-                <strong>Munkavállalók</strong> fülön állítod be). Ha „Alvállalkozó”, akkor alvállalkozókat.
+                „Saját projekt” esetén a munkavállalók napi beosztása és projekthez kötése a{" "}
+                <strong>Munkanapló → Embernapok</strong> nézetben történik. „Alvállalkozó” projektnél itt rendelhetsz
+                alvállalkozókat.
               </p>
               {subcontractorAssignmentsWarning && (
                 <div className="mt-3 p-3 rounded-lg bg-amber-50 text-amber-800 font-sans text-sm">
                   {subcontractorAssignmentsWarning}
+                </div>
+              )}
+              {projectsClientSchemaWarning && (
+                <div className="mt-3 p-3 rounded-lg bg-amber-50 text-amber-800 font-sans text-sm">
+                  {projectsClientSchemaWarning}
                 </div>
               )}
 
@@ -705,7 +766,6 @@ export default function AdminPage() {
                 )}
 
                 {projects.map((project) => {
-                  const selectedLaborerIds = selectedByProject[project.id] ?? [];
                   const selectedSubcontractors = selectedSubcontractorsByProject[project.id] ?? [];
                   const isEditing = editingProjectId === project.id;
                   const effectiveProjectKind = isEditing ? editingProjectKind : project.project_kind;
@@ -738,7 +798,34 @@ export default function AdminPage() {
                             </button>
                           )}
                         </div>
-                        <div>
+                        {!isEditing && (
+                          <div className="space-y-3 font-sans text-sm">
+                            <div>
+                              <span className="text-black/50 text-xs font-medium uppercase tracking-wide">
+                                Cím
+                              </span>
+                              <p className="text-black mt-0.5 whitespace-pre-wrap">
+                                {project.address?.trim() || "—"}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-outline bg-white p-3">
+                              <p className="font-sans text-xs font-semibold text-black/60 uppercase tracking-wide mb-2">
+                                Megrendelő
+                              </p>
+                              <dl className="space-y-1.5">
+                                <div className="grid grid-cols-[5rem_1fr] gap-x-2 gap-y-1 items-baseline">
+                                  <dt className="text-black/50">Név:</dt>
+                                  <dd className="text-black">{project.client_name?.trim() || "—"}</dd>
+                                  <dt className="text-black/50">Telefonszám:</dt>
+                                  <dd className="text-black">{project.client_phone?.trim() || "—"}</dd>
+                                  <dt className="text-black/50">Email cím:</dt>
+                                  <dd className="text-black break-all">{project.client_email?.trim() || "—"}</dd>
+                                </div>
+                              </dl>
+                            </div>
+                          </div>
+                        )}
+                        <div className="space-y-2">
                           {isEditing ? (
                             <select
                               value={editingProjectKind}
@@ -755,58 +842,80 @@ export default function AdminPage() {
                                 : "Alvállalkozó"}
                             </span>
                           )}
-                        </div>
-                        <div
-                          className="w-full max-h-56 overflow-auto rounded-lg border border-outline bg-white p-2"
-                          aria-label={`Select laborers for ${project.name}`}
-                        >
-                          {!isSubcontractorProject && laborers.length === 0 && (
-                            <p className="px-2 py-1 font-sans text-sm text-black/60">
-                              Nincsenek munkavállalók.
-                            </p>
-                          )}
-                          {isSubcontractorProject && subcontractors.length === 0 && (
-                            <p className="px-2 py-1 font-sans text-sm text-black/60">
-                              Nincsenek alvállalkozók.
-                            </p>
-                          )}
-                          {!isSubcontractorProject && (
-                            <div className="space-y-1">
-                              {laborers.map((laborer) => {
-                                const checked = selectedLaborerIds.includes(laborer.id);
-                                return (
-                                  <label
-                                    key={laborer.id}
-                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-variant cursor-pointer"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={(e) => {
-                                        setSelectedByProject((prev) => {
-                                          const current = prev[project.id] ?? [];
-                                          const next = e.target.checked
-                                            ? current.includes(laborer.id)
-                                              ? current
-                                              : [...current, laborer.id]
-                                            : current.filter((id) => id !== laborer.id);
-                                          return {
-                                            ...prev,
-                                            [project.id]: next,
-                                          };
-                                        });
-                                      }}
-                                      className="h-4 w-4 rounded border-outline text-primary focus:ring-primary/50"
-                                    />
-                                    <span className="font-sans text-sm text-black">
-                                      {laborer.name}
-                                    </span>
-                                  </label>
-                                );
-                              })}
+                          {isEditing && (
+                            <div>
+                              <label className="block font-sans text-xs text-black/60 mb-1">
+                                Ajánlati ár (Ft, opcionális)
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={editingProjectOfferedPrice}
+                                onChange={(e) => setEditingProjectOfferedPrice(e.target.value)}
+                                className="h-9 w-full max-w-xs px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              />
                             </div>
                           )}
-                          {isSubcontractorProject && (
+                          {isEditing && (
+                            <div>
+                              <label className="block font-sans text-xs text-black/60 mb-1">Cím</label>
+                              <textarea
+                                value={editingProjectAddress}
+                                onChange={(e) => setEditingProjectAddress(e.target.value)}
+                                rows={2}
+                                placeholder="Utca, házszám, irányítószám…"
+                                className="w-full px-3 py-2 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              />
+                            </div>
+                          )}
+                          {isEditing && (
+                            <div className="rounded-lg border border-outline bg-surface-variant p-3 space-y-3">
+                              <p className="font-sans text-xs font-semibold text-black/60 uppercase tracking-wide">
+                                Megrendelő
+                              </p>
+                              <label className="block">
+                                <span className="font-sans text-xs text-black/60">Név:</span>
+                                <input
+                                  value={editingClientName}
+                                  onChange={(e) => setEditingClientName(e.target.value)}
+                                  className="mt-1 w-full h-10 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                  placeholder="Megrendelő neve"
+                                />
+                              </label>
+                              <label className="block">
+                                <span className="font-sans text-xs text-black/60">Telefonszám:</span>
+                                <input
+                                  type="tel"
+                                  value={editingClientPhone}
+                                  onChange={(e) => setEditingClientPhone(e.target.value)}
+                                  className="mt-1 w-full h-10 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                  placeholder="+36…"
+                                />
+                              </label>
+                              <label className="block">
+                                <span className="font-sans text-xs text-black/60">Email cím:</span>
+                                <input
+                                  type="email"
+                                  value={editingClientEmail}
+                                  onChange={(e) => setEditingClientEmail(e.target.value)}
+                                  className="mt-1 w-full h-10 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                  placeholder="email@…"
+                                />
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                        {isSubcontractorProject ? (
+                          <div
+                            className="w-full max-h-56 overflow-auto rounded-lg border border-outline bg-white p-2"
+                            aria-label={`Alvállalkozók kiválasztása: ${project.name}`}
+                          >
+                            {subcontractors.length === 0 && (
+                              <p className="px-2 py-1 font-sans text-sm text-black/60">
+                                Nincsenek alvállalkozók.
+                              </p>
+                            )}
                             <div className="space-y-1">
                               {subcontractors.map((sub) => {
                                 const checked = selectedSubcontractors.includes(sub.id);
@@ -839,31 +948,39 @@ export default function AdminPage() {
                                 );
                               })}
                             </div>
+                          </div>
+                        ) : (
+                          <p className="font-sans text-sm text-black/70 rounded-lg border border-outline bg-surface-variant px-3 py-2">
+                            A munkavállalók <strong>napi beosztása és projekthez rendelése</strong> a{" "}
+                            <strong>Munkanapló → Embernapok</strong> nézetben történik; a projektekhez itt nem rendelünk
+                            munkavállalót.
+                          </p>
+                        )}
+                        <div
+                          className={`flex items-center gap-2 ${
+                            isSubcontractorProject ? "justify-between" : "justify-end"
+                          }`}
+                        >
+                          {isSubcontractorProject && (
+                            <span className="font-sans text-xs text-black/60">
+                              Jelöld be az alvállalkozókat, amelyeket ehhez a projekthez rendelsz.
+                            </span>
                           )}
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-sans text-xs text-black/60">
-                              {isSubcontractorProject
-                                ? "Jelöld be az alvállalkozókat, amelyeket ehhez a projekthez rendelsz."
-                                : "Jelöld be a munkavállalókat ehhez a projekthez. A szerepkörüket a Munkavállalók fülön állítod."}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                isSubcontractorProject
-                                  ? void saveProjectSubcontractors(project.id)
-                                  : void saveProjectLaborers(project.id)
-                              }
-                              disabled={
-                                savingProjectId === project.id ||
-                                deletingProjectId === project.id ||
-                                isEditing
-                              }
-                              className="h-9 px-4 rounded-lg bg-primary text-black font-sans text-sm font-medium disabled:opacity-60"
-                            >
-                              {savingProjectId === project.id ? "Mentés..." : "Mentés"}
-                            </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isSubcontractorProject && (
+                              <button
+                                type="button"
+                                onClick={() => void saveProjectSubcontractors(project.id)}
+                                disabled={
+                                  savingProjectId === project.id ||
+                                  deletingProjectId === project.id ||
+                                  isEditing
+                                }
+                                className="h-9 px-4 rounded-lg bg-primary text-black font-sans text-sm font-medium disabled:opacity-60"
+                              >
+                                {savingProjectId === project.id ? "Mentés..." : "Mentés"}
+                              </button>
+                            )}
                             {isEditing && (
                               <>
                                 <button
@@ -911,7 +1028,7 @@ export default function AdminPage() {
                 <p className="mt-1 font-sans text-sm text-black/70">
                   Új projekt létrehozása adminból.
                 </p>
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                   <input
                     value={newProjectName}
                     onChange={(e) => setNewProjectName(e.target.value)}
@@ -930,6 +1047,15 @@ export default function AdminPage() {
                     placeholder="Cím (opcionális)"
                     className="h-11 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={newProjectOfferedPrice}
+                    onChange={(e) => setNewProjectOfferedPrice(e.target.value)}
+                    placeholder="Ajánlati ár (Ft, opcionális)"
+                    className="h-11 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
                 </div>
                 <div className="mt-3">
                   <select
@@ -940,6 +1066,42 @@ export default function AdminPage() {
                     <option value="Sajat projekt">Saját projekt</option>
                     <option value="Alvallalkozo">Alvállalkozó</option>
                   </select>
+                </div>
+                <div className="mt-4 rounded-lg border border-outline bg-surface-variant p-4 space-y-3">
+                  <p className="font-sans text-xs font-semibold text-black/60 uppercase tracking-wide">
+                    Megrendelő
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="block">
+                      <span className="font-sans text-xs text-black/60">Név:</span>
+                      <input
+                        value={newProjectClientName}
+                        onChange={(e) => setNewProjectClientName(e.target.value)}
+                        placeholder="Megrendelő neve"
+                        className="mt-1 w-full h-11 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="font-sans text-xs text-black/60">Telefonszám:</span>
+                      <input
+                        type="tel"
+                        value={newProjectClientPhone}
+                        onChange={(e) => setNewProjectClientPhone(e.target.value)}
+                        placeholder="+36…"
+                        className="mt-1 w-full h-11 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="font-sans text-xs text-black/60">Email cím:</span>
+                      <input
+                        type="email"
+                        value={newProjectClientEmail}
+                        onChange={(e) => setNewProjectClientEmail(e.target.value)}
+                        placeholder="email@…"
+                        className="mt-1 w-full h-11 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                    </label>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -957,7 +1119,9 @@ export default function AdminPage() {
             <>
               <h3 className="font-serif text-lg font-semibold text-black">Munkavállalók</h3>
               <p className="mt-2 font-sans text-sm text-black/70">
-                Add meg a munkavállalókat itt, állítsd be a <strong>globális jogosultságukat</strong>, majd a Projektek fülön jelöld, mely projektekhez tartoznak.
+                Itt a <strong>globális munkavállalói névjegyzék</strong> és jogosultságok kezelhetők. Ki hol és mikor dolgozik,
+                a <strong>Munkanapló → Embernapok</strong> nézetben rögzítendő — a projektekhez itt nem rendelsz
+                munkavállalót.
               </p>
 
               <div className="mt-4 rounded-xl border border-outline bg-surface p-4">

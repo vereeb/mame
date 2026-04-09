@@ -20,6 +20,8 @@ type CalendarEventRow = {
   description: string | null;
   event_date: string;
   amount: number | null;
+  /** Ha kitöltött: az Embernapok (Munkanapló) táblázatból szinkronizált tétel. */
+  embernapok_sync_key: string | null;
 };
 
 const EVENT_TYPE_LABELS: Record<CalendarEventType, string> = {
@@ -69,7 +71,12 @@ function eventPreviewHoverTitle(ev: CalendarEventRow, projectName: string | unde
   const head = projectName ? `${projectName} · ` : "";
   const label = `${EVENT_TYPE_LABELS[ev.event_type]}: ${ev.title?.trim() || EVENT_TYPE_LABELS[ev.event_type]}`;
   const amt = formatEventAmountPreview(ev);
-  return `${head}${label}${amt != null ? ` · ${amt}` : ""} — megnyitás`;
+  const ember = ev.embernapok_sync_key ? " · Embernapok" : "";
+  return `${head}${label}${amt != null ? ` · ${amt}` : ""}${ember} — megnyitás`;
+}
+
+function isEmbernapokSyncedEvent(ev: CalendarEventRow): boolean {
+  return Boolean(ev.embernapok_sync_key);
 }
 
 const WEEKDAY_NAMES_HU = [
@@ -201,7 +208,9 @@ export default function CalendarPage() {
     try {
       let q = supabase
         .from("calendar_events")
-        .select("id, project_id, event_type, title, description, event_date, amount")
+        .select(
+          "id, project_id, event_type, title, description, event_date, amount, embernapok_sync_key",
+        )
         .gte("event_date", rangeStart)
         .lte("event_date", rangeEnd);
       q = ids.length === 1 ? q.eq("project_id", ids[0]) : q.in("project_id", ids);
@@ -212,6 +221,7 @@ export default function CalendarPage() {
           const r = row as CalendarEventRow;
           return {
             ...r,
+            embernapok_sync_key: r.embernapok_sync_key ?? null,
             event_type: normalizeCalendarEventType(String(r.event_type)),
           };
         }),
@@ -261,7 +271,7 @@ export default function CalendarPage() {
   }
 
   function startEditingFromView() {
-    if (!viewingEvent) return;
+    if (!viewingEvent || isEmbernapokSyncedEvent(viewingEvent)) return;
     setFormType(viewingEvent.event_type);
     setFormTitle(viewingEvent.title);
     setFormDescription(viewingEvent.description ?? "");
@@ -324,7 +334,9 @@ export default function CalendarPage() {
           amount: Number.isFinite(amount as number) ? amount : null,
         })
         .eq("id", viewingEvent.id)
-        .select("id, project_id, event_type, title, description, event_date, amount")
+        .select(
+          "id, project_id, event_type, title, description, event_date, amount, embernapok_sync_key",
+        )
         .single();
       if (upErr) throw upErr;
       setViewingEvent(data as CalendarEventRow);
@@ -406,7 +418,8 @@ export default function CalendarPage() {
         <div>
           <h2 className="font-serif text-xl font-semibold text-black">Naptár</h2>
           <p className="text-sm text-black/70 mt-1">
-            Kiadás, bevétel, határidő és általános események dátum szerint.
+            Kiadás, bevétel, határidő és általános események dátum szerint. Az Embernapokban beosztott
+            munkások napi bére automatikusan megjelenik tervezett kiadásként a megfelelő napon és projekten.
             {scope.kind === "all" && (
               <span className="block mt-1 text-black/60">
                 Összesített nézet: az események a projektjeik szerint vannak jelölve. Új eseményhez válassz
@@ -542,7 +555,14 @@ export default function CalendarPage() {
                               title={eventPreviewHoverTitle(ev, pName)}
                               className={`flex w-full flex-col items-stretch gap-0.5 rounded-lg border px-2.5 py-2 text-left font-sans text-sm leading-snug ${EVENT_TYPE_STYLES[ev.event_type]}`}
                             >
-                              <span className="line-clamp-2">{main}</span>
+                              <span className="flex flex-wrap items-center gap-1 min-w-0">
+                                {isEmbernapokSyncedEvent(ev) && (
+                                  <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-black/10 text-black/80">
+                                    Embernapok
+                                  </span>
+                                )}
+                                <span className="line-clamp-2">{main}</span>
+                              </span>
                               {amountStr != null && (
                                 <span className="font-semibold tabular-nums">{amountStr}</span>
                               )}
@@ -619,7 +639,14 @@ export default function CalendarPage() {
                                 title={eventPreviewHoverTitle(ev, pName)}
                                 className={`flex w-full flex-col items-stretch gap-0.5 rounded-lg border px-2 py-1.5 text-left font-sans text-xs leading-snug ${EVENT_TYPE_STYLES[ev.event_type]}`}
                               >
-                                <span className="line-clamp-3">{main}</span>
+                                <span className="flex flex-wrap items-start gap-1 min-w-0">
+                                  {isEmbernapokSyncedEvent(ev) && (
+                                    <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-black/10 text-black/80">
+                                      EN
+                                    </span>
+                                  )}
+                                  <span className="line-clamp-3">{main}</span>
+                                </span>
                                 {amountStr != null && (
                                   <span className="font-semibold tabular-nums">{amountStr}</span>
                                 )}
@@ -648,7 +675,8 @@ export default function CalendarPage() {
               ))}
             </div>
             <p className="mt-3 font-sans text-xs text-black/60">
-              Esemény megnyitása: kattints a naptárban a színes címkére.
+              Esemény megnyitása: kattints a naptárban a színes címkére. Az Embernapokból jövő tételek a
+              Munkanaplóban módosíthatók (beosztás és bérek).
             </p>
           </div>
         </>
@@ -687,6 +715,13 @@ export default function CalendarPage() {
                 >
                   {EVENT_TYPE_LABELS[viewingEvent.event_type]}
                 </p>
+                {isEmbernapokSyncedEvent(viewingEvent) && (
+                  <p className="mb-4 rounded-lg border border-outline bg-surface-variant px-3 py-2 font-sans text-xs text-black/80">
+                    Ez a tétel az <strong className="font-semibold text-black">Embernapok</strong> beosztásból és a
+                    munkavállalók napi béréből számolódik. A beosztást és a béreket a{" "}
+                    <strong className="font-semibold text-black">Munkanapló</strong>ban módosíthatod.
+                  </p>
+                )}
                 <dl className="space-y-3 font-sans text-sm">
                   <div>
                     <dt className="text-black/50 text-xs font-medium uppercase tracking-wide">Dátum</dt>
@@ -784,28 +819,34 @@ export default function CalendarPage() {
             )}
             {!eventDetailEditing ? (
               <div className="flex flex-col gap-3 mt-6">
-                <div className="flex flex-col-reverse sm:flex-row gap-3">
-                  <button
-                    type="button"
-                    onClick={() => void deleteEvent(viewingEvent.id)}
-                    disabled={deletingId !== null}
-                    className="flex-1 h-11 rounded-lg font-sans text-sm font-medium text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-50"
-                  >
-                    {deletingId === viewingEvent.id ? "Törlés…" : "Törlés"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={startEditingFromView}
-                    disabled={deletingId !== null}
-                    className="flex-1 h-11 rounded-lg font-sans text-sm font-medium text-black border border-outline hover:bg-surface-variant disabled:opacity-50"
-                  >
-                    Szerkesztés
-                  </button>
+                <div
+                  className={`flex flex-col-reverse sm:flex-row gap-3 ${isEmbernapokSyncedEvent(viewingEvent) ? "sm:justify-end" : ""}`}
+                >
+                  {!isEmbernapokSyncedEvent(viewingEvent) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void deleteEvent(viewingEvent.id)}
+                        disabled={deletingId !== null}
+                        className="flex-1 h-11 rounded-lg font-sans text-sm font-medium text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingId === viewingEvent.id ? "Törlés…" : "Törlés"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={startEditingFromView}
+                        disabled={deletingId !== null}
+                        className="flex-1 h-11 rounded-lg font-sans text-sm font-medium text-black border border-outline hover:bg-surface-variant disabled:opacity-50"
+                      >
+                        Szerkesztés
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={closeEventDetail}
                     disabled={deletingId !== null}
-                    className="flex-1 h-11 rounded-lg font-sans text-sm font-medium bg-primary text-black hover:opacity-90 disabled:opacity-50"
+                    className={`h-11 rounded-lg font-sans text-sm font-medium bg-primary text-black hover:opacity-90 disabled:opacity-50 ${isEmbernapokSyncedEvent(viewingEvent) ? "w-full sm:w-auto sm:min-w-[10rem] px-6" : "flex-1"}`}
                   >
                     Bezárás
                   </button>

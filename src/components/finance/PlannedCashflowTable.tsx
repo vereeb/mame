@@ -208,7 +208,7 @@ export function PlannedCashflowTable({
         <strong>Időbeli nullpont: {CASHFLOW_EPOCH}</strong> — minden számla (projekt) egyenlege ettől a
         naptól számítva indul <strong>0 Ft</strong>-ról. A naptárban ennél korábbi{" "}
         <em>tervezett</em> tételek nem kerülnek a táblába, így a múlt hetek szerkesztése nem zavarja a
-        cashflow-t. A lista a naptár <em>Tervezett bevétel</em> és <em>Tervezett kiadás</em> eseményeit
+        cashflow-t. A lista a naptár <em>Tervezett bevétel</em> és <em>Költség</em> eseményeit
         tartalmazza ({CASHFLOW_EPOCH} és későbbi dátumok). Több projektnél az{" "}
         <strong>Összes egyenleg</strong> oszlop a számlák összege minden lépés után.
       </p>
@@ -234,7 +234,7 @@ export function PlannedCashflowTable({
                   Tervezett bevétel
                 </th>
                 <th className="px-3 py-2.5 font-semibold text-orange-900 text-right whitespace-nowrap">
-                  Tervezett kiadás
+                  Költség
                 </th>
                 <th className="px-3 py-2.5 font-semibold text-black/80 text-right whitespace-nowrap">
                   Egyenleg (számla)

@@ -14,18 +14,17 @@ const BASE_LINKS: NavLinkItem[] = [
 ];
 
 export function HeaderNav() {
-  const { canViewOwnerOnlyPages, isSuperuser } = useOwnerOnlyNav();
-
-  const ownerLinks: NavLinkItem[] = canViewOwnerOnlyPages
-    ? [
-        { href: "/calendar", label: "Naptár" },
-        { href: "/finance", label: "Pénzügy" },
-      ]
-    : [];
+  const { canViewOwnerOnlyPages, canViewMunkanaploNav, isSuperuser } = useOwnerOnlyNav();
 
   const links: NavLinkItem[] = [
     ...BASE_LINKS,
-    ...ownerLinks,
+    ...(canViewMunkanaploNav ? [{ href: "/munkanaplo", label: "Munkanapló" }] : []),
+    ...(canViewOwnerOnlyPages
+      ? [
+          { href: "/calendar", label: "Naptár" },
+          { href: "/finance", label: "Pénzügy" },
+        ]
+      : []),
     ...(isSuperuser ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 

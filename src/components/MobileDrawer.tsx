@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useOwnerOnlyNav } from "@/hooks/useOwnerOnlyNav";
 
 export function MobileDrawer() {
-  const { canViewOwnerOnlyPages } = useOwnerOnlyNav();
+  const { canViewOwnerOnlyPages, canViewMunkanaploNav } = useOwnerOnlyNav();
 
   return (
     <aside
@@ -29,6 +29,14 @@ export function MobileDrawer() {
           >
             Dokumentumok
           </Link>
+          {canViewMunkanaploNav && (
+            <Link
+              href="/munkanaplo"
+              className="px-4 py-3 rounded-lg text-sm font-medium text-black hover:bg-surface-variant"
+            >
+              Munkanapló
+            </Link>
+          )}
           {canViewOwnerOnlyPages && (
             <>
               <Link
