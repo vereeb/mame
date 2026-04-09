@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useProject } from "@/contexts/ProjectContext";
 import { isAllProjects } from "@/lib/projectScope";
-import { userHasOwnerOnAnyProject } from "@/lib/ownerAccess";
+import { userHasOwnerRoleAnywhere } from "@/lib/ownerAccess";
 
 /**
  * Finance / Calendar pages: allowed only for superuser or owner-level access
@@ -70,8 +70,7 @@ export function useOwnerProjectPageAccess() {
         }
 
         if (isAllProjects(projectId)) {
-          const ids = accessibleProjects.map((p) => p.id);
-          const ok = await userHasOwnerOnAnyProject(supabase, userId, ids);
+          const ok = await userHasOwnerRoleAnywhere(supabase, userId);
           if (!cancelled) setAllowed(ok);
           return;
         }

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useProject, type AccessibleProject } from "@/contexts/ProjectContext";
 import { createClient } from "@/lib/supabase/client";
 import { ALL_PROJECTS_VALUE, isAllProjects } from "@/lib/projectScope";
-import { userHasOwnerOnAnyProject } from "@/lib/ownerAccess";
+import { userHasOwnerRoleAnywhere } from "@/lib/ownerAccess";
 
 export function ProjectDropdown() {
   const {
@@ -99,13 +99,7 @@ export function ProjectDropdown() {
         if (cancelled || list === null) return;
 
         const ownerLike =
-          superuser ||
-          (list.length > 0 &&
-            (await userHasOwnerOnAnyProject(
-              supabase,
-              userId,
-              list.map((p) => p.id)
-            )));
+          superuser || (await userHasOwnerRoleAnywhere(supabase, userId));
 
         if (!cancelled) {
           setIsOwnerLike(ownerLike);

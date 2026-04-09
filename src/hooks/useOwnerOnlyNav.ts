@@ -4,15 +4,15 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useProject } from "@/contexts/ProjectContext";
 import { isAllProjects } from "@/lib/projectScope";
-import { userHasOwnerOnAnyProject } from "@/lib/ownerAccess";
+import { userHasOwnerRoleAnywhere } from "@/lib/ownerAccess";
 
 /**
  * Desktop/mobile nav:
  * - Calendar + Finance: superuser or owner on the current selection (or any listed project when „Összes projekt”).
- * - Munkanapló: superuser or owner on at least one accessible project (independent of selection).
+ * - Munkanapló: superuser or owner on at least one project (independent of selection).
  */
 export function useOwnerOnlyNav() {
-  const { projectId, accessibleProjects, projectsDirectoryLoaded } = useProject();
+  const { projectId } = useProject();
   const [isSuperuser, setIsSuperuser] = useState(false);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [isOwnerForProject, setIsOwnerForProject] = useState(false);
@@ -97,16 +97,7 @@ export function useOwnerOnlyNav() {
 
     void (async () => {
       if (isAllProjects(projectId)) {
-        if (!projectsDirectoryLoaded) {
-          if (!cancelled) setIsOwnerForProject(false);
-          return;
-        }
-        const ids = accessibleProjects.map((p) => p.id);
-        if (ids.length === 0) {
-          if (!cancelled) setIsOwnerForProject(false);
-          return;
-        }
-        const ok = await userHasOwnerOnAnyProject(supabase, authUserId, ids);
+        const ok = await userHasOwnerRoleAnywhere(supabase, authUserId);
         if (!cancelled) setIsOwnerForProject(ok);
         return;
       }
@@ -123,7 +114,7 @@ export function useOwnerOnlyNav() {
     return () => {
       cancelled = true;
     };
-  }, [authUserId, projectId, accessibleProjects, projectsDirectoryLoaded]);
+  }, [authUserId, projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,26 +125,15 @@ export function useOwnerOnlyNav() {
       return;
     }
 
-    if (!projectsDirectoryLoaded) {
-      setIsOwnerOnAnyAccessibleProject(false);
-      return;
-    }
-
-    const ids = accessibleProjects.map((p) => p.id);
-    if (ids.length === 0) {
-      setIsOwnerOnAnyAccessibleProject(false);
-      return;
-    }
-
     void (async () => {
-      const ok = await userHasOwnerOnAnyProject(supabase, authUserId, ids);
+      const ok = await userHasOwnerRoleAnywhere(supabase, authUserId);
       if (!cancelled) setIsOwnerOnAnyAccessibleProject(ok);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [authUserId, accessibleProjects, projectsDirectoryLoaded]);
+  }, [authUserId]);
 
   const canViewOwnerOnlyPages = isSuperuser || isOwnerForProject;
   const canViewMunkanaploNav = isSuperuser || isOwnerOnAnyAccessibleProject;

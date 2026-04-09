@@ -2,15 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useProject } from "@/contexts/ProjectContext";
-import { userHasOwnerOnAnyProject } from "@/lib/ownerAccess";
+import { userHasOwnerRoleAnywhere } from "@/lib/ownerAccess";
 
 /**
  * Munkanapló: allowed for superuser or if the user is Owner on at least one
- * accessible project — independent of the header project dropdown selection.
+ * project — independent of the header project dropdown selection.
  */
 export function useMunkanaploPageAccess() {
-  const { accessibleProjects, projectsDirectoryLoaded } = useProject();
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,20 +16,6 @@ export function useMunkanaploPageAccess() {
     let cancelled = false;
 
     async function load() {
-      if (!projectsDirectoryLoaded) {
-        if (!cancelled) setAllowed(null);
-        return;
-      }
-
-      const ids = accessibleProjects.map((p) => p.id);
-      if (ids.length === 0) {
-        if (!cancelled) {
-          setAllowed(false);
-          setError(null);
-        }
-        return;
-      }
-
       const supabase = createClient();
       if (!supabase) {
         if (!cancelled) {
@@ -67,7 +51,7 @@ export function useMunkanaploPageAccess() {
           return;
         }
 
-        const ok = await userHasOwnerOnAnyProject(supabase, userId, ids);
+        const ok = await userHasOwnerRoleAnywhere(supabase, userId);
         if (!cancelled) setAllowed(ok);
       } catch (e: unknown) {
         if (!cancelled) {
@@ -81,7 +65,7 @@ export function useMunkanaploPageAccess() {
     return () => {
       cancelled = true;
     };
-  }, [accessibleProjects, projectsDirectoryLoaded]);
+  }, []);
 
   return { allowed, error };
 }
