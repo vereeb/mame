@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useProject } from "@/contexts/ProjectContext";
+import { useOwnerOnlyNav } from "@/hooks/useOwnerOnlyNav";
 
 function NavIcon({ name }: { name: string }) {
   const icons: Record<string, React.ReactNode> = {
@@ -74,107 +72,7 @@ function NavLink({
 }
 
 export function MobileBottomNav() {
-  const { projectId } = useProject();
-  const [isSuperuser, setIsSuperuser] = useState(false);
-  const [authUserId, setAuthUserId] = useState<string | null>(null);
-  const [isOwnerForProject, setIsOwnerForProject] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    const supabase = createClient();
-    if (!supabase) return;
-
-    async function loadSuperuserForUserId(userId: string) {
-      const { data } = await supabase
-        .from("profiles")
-        .select("is_superuser")
-        .eq("id", userId)
-        .single();
-      if (!cancelled) setIsSuperuser(Boolean(data?.is_superuser));
-    }
-
-    async function loadInitial() {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        const userId =
-          session?.user?.id ??
-          (await supabase.auth.getUser()).data.user?.id ??
-          null;
-
-        if (!userId) {
-          if (!cancelled) {
-            setIsSuperuser(false);
-            setAuthUserId(null);
-          }
-          return;
-        }
-
-        if (!cancelled) setAuthUserId(userId);
-        await loadSuperuserForUserId(userId);
-      } catch {
-        if (!cancelled) {
-          setIsSuperuser(false);
-          setAuthUserId(null);
-        }
-      }
-    }
-
-    void loadInitial();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const userId = session?.user?.id;
-      if (!userId) {
-        if (!cancelled) {
-          setIsSuperuser(false);
-          setAuthUserId(null);
-        }
-        return;
-      }
-
-      if (!cancelled) setAuthUserId(userId);
-      void loadSuperuserForUserId(userId);
-    });
-
-    return () => {
-      cancelled = true;
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const supabase = createClient();
-    if (!supabase) {
-      setIsOwnerForProject(false);
-      return;
-    }
-
-    if (!projectId || !authUserId) {
-      setIsOwnerForProject(false);
-      return;
-    }
-
-    void (async () => {
-      const { data } = await supabase.rpc("user_has_project_access", {
-        p_user_id: authUserId,
-        p_project_id: projectId,
-        p_min_role: "owner",
-      });
-
-      if (!cancelled) setIsOwnerForProject(Boolean(data));
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authUserId, projectId]);
-
-  const canViewFinance = isSuperuser || isOwnerForProject;
+  const { canViewOwnerOnlyPages } = useOwnerOnlyNav();
 
   return (
     <nav
@@ -184,10 +82,13 @@ export function MobileBottomNav() {
       <div className="flex items-center justify-around h-16">
         <NavLink href="/" label="Kezdőlap" icon="dashboard" />
         <NavLink href="/documents" label="Dokumentumok" icon="documents" />
-        <NavLink href="/calendar" label="Naptár" icon="calendar" />
-        {canViewFinance && <NavLink href="/finance" label="Pénzügy" icon="finance" />}
+        {canViewOwnerOnlyPages && (
+          <>
+            <NavLink href="/calendar" label="Naptár" icon="calendar" />
+            <NavLink href="/finance" label="Pénzügy" icon="finance" />
+          </>
+        )}
       </div>
     </nav>
   );
 }
-

@@ -12,9 +12,15 @@ type Project = {
   address: string | null;
   project_kind: ProjectKind;
 };
-type Laborer = { id: string; name: string; daily_wage: number; email: string | null };
 type LaborerRole = "owner" | "admin" | "member" | "viewer";
-type ProjectLaborerMember = { project_id: string; laborer_id: string; role: LaborerRole };
+type Laborer = {
+  id: string;
+  name: string;
+  daily_wage: number;
+  email: string | null;
+  access_role: LaborerRole;
+};
+type ProjectLaborerMember = { project_id: string; laborer_id: string };
 type ProjectSubcontractorMember = { project_id: string; subcontractor_id: string };
 type Subcontractor = {
   id: string;
@@ -51,16 +57,14 @@ export default function AdminPage() {
   const [editingProjectName, setEditingProjectName] = useState("");
   const [editingProjectKind, setEditingProjectKind] = useState<ProjectKind>("Sajat projekt");
   const [savingProjectEdit, setSavingProjectEdit] = useState(false);
-  // projectId -> laborerId -> role
-  const [selectedByProject, setSelectedByProject] = useState<
-    Record<string, Record<string, LaborerRole>>
-  >({});
+  const [selectedByProject, setSelectedByProject] = useState<Record<string, string[]>>({});
   const [selectedSubcontractorsByProject, setSelectedSubcontractorsByProject] = useState<Record<string, string[]>>({});
 
   const [newLaborerName, setNewLaborerName] = useState("");
   const [newLaborerDailyWage, setNewLaborerDailyWage] = useState("");
   const [newLaborerEmail, setNewLaborerEmail] = useState("");
-  
+  const [newLaborerAccessRole, setNewLaborerAccessRole] = useState<LaborerRole>("member");
+
   const [creatingLaborer, setCreatingLaborer] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDescription, setNewProjectDescription] = useState("");
@@ -71,6 +75,7 @@ export default function AdminPage() {
   const [editingLaborerName, setEditingLaborerName] = useState("");
   const [editingLaborerDailyWage, setEditingLaborerDailyWage] = useState("");
   const [editingLaborerEmail, setEditingLaborerEmail] = useState("");
+  const [editingLaborerAccessRole, setEditingLaborerAccessRole] = useState<LaborerRole>("member");
   const [savingLaborerEdit, setSavingLaborerEdit] = useState(false);
   const [newSubcontractorCompanyName, setNewSubcontractorCompanyName] = useState("");
   const [newSubcontractorSpecialties, setNewSubcontractorSpecialties] = useState<string[]>([]);
@@ -119,10 +124,11 @@ export default function AdminPage() {
               .from("projects")
               .select("id, name, description, address, project_kind")
               .order("name"),
-            supabase.from("laborers").select("id, name, daily_wage, email").order("name"),
             supabase
-              .from("project_laborer_members")
-              .select("project_id, laborer_id, role"),
+              .from("laborers")
+              .select("id, name, daily_wage, email, access_role")
+              .order("name"),
+            supabase.from("project_laborer_members").select("project_id, laborer_id"),
           ]);
 
           if (projectsErr) throw new Error(projectsErr.message);
@@ -138,15 +144,11 @@ export default function AdminPage() {
             setMemberships(allMemberships);
             setSubcontractorsWarning(null);
 
-            const nextSelectedByProject: Record<string, Record<string, LaborerRole>> = {};
+            const nextSelectedByProject: Record<string, string[]> = {};
             allProjects.forEach((p) => {
-              const perProject: Record<string, LaborerRole> = {};
-              allMemberships
+              nextSelectedByProject[p.id] = allMemberships
                 .filter((m) => m.project_id === p.id)
-                .forEach((m) => {
-                  perProject[m.laborer_id] = m.role;
-                });
-              nextSelectedByProject[p.id] = perProject;
+                .map((m) => m.laborer_id);
             });
             setSelectedByProject(nextSelectedByProject);
           }
@@ -220,8 +222,7 @@ export default function AdminPage() {
     const currentlyAssigned = memberships
       .filter((m) => m.project_id === projectId)
       .map((m) => m.laborer_id);
-    const selectedRoles = selectedByProject[projectId] ?? {};
-    const selected = Object.keys(selectedRoles);
+    const selected = selectedByProject[projectId] ?? [];
 
     const toAdd = selected.filter((id) => !currentlyAssigned.includes(id));
     const toRemove = currentlyAssigned.filter((id) => !selected.includes(id));
@@ -231,7 +232,6 @@ export default function AdminPage() {
         const rows = toAdd.map((laborerId) => ({
           project_id: projectId,
           laborer_id: laborerId,
-          role: selectedRoles[laborerId] ?? "member",
         }));
         const { error } = await supabase.from("project_laborer_members").insert(rows);
         if (error) throw error;
@@ -248,7 +248,7 @@ export default function AdminPage() {
 
       const { data: refreshedMemberships, error: refreshErr } = await supabase
         .from("project_laborer_members")
-        .select("project_id, laborer_id, role");
+        .select("project_id, laborer_id");
       if (refreshErr) throw refreshErr;
       setMemberships((refreshedMemberships ?? []) as ProjectLaborerMember[]);
     } catch (e: any) {
@@ -319,8 +319,9 @@ export default function AdminPage() {
           name: newLaborerName.trim(),
           daily_wage: Number.isFinite(wage) ? wage : 0,
           email: newLaborerEmail.trim() || null,
+          access_role: newLaborerAccessRole,
         })
-        .select("id, name, daily_wage, email")
+        .select("id, name, daily_wage, email, access_role")
         .single();
       if (error) throw error;
 
@@ -328,6 +329,7 @@ export default function AdminPage() {
       setNewLaborerName("");
       setNewLaborerDailyWage("");
       setNewLaborerEmail("");
+      setNewLaborerAccessRole("member");
     } catch (e: any) {
       setScreenError(e?.message ?? "Munkavállaló hozzáadása sikertelen");
     } finally {
@@ -371,8 +373,14 @@ export default function AdminPage() {
       });
       if (memberErr) throw memberErr;
 
+      const { error: profileRoleErr } = await supabase
+        .from("profiles")
+        .update({ access_role: "owner" })
+        .eq("id", userId);
+      if (profileRoleErr) throw profileRoleErr;
+
       setProjects((prev) => [...prev, newProject].sort((a, b) => a.name.localeCompare(b.name)));
-      setSelectedByProject((prev) => ({ ...prev, [newProject.id]: {} }));
+      setSelectedByProject((prev) => ({ ...prev, [newProject.id]: [] }));
       setNewProjectName("");
       setNewProjectDescription("");
       setNewProjectAddress("");
@@ -389,6 +397,7 @@ export default function AdminPage() {
     setEditingLaborerName(laborer.name);
     setEditingLaborerDailyWage(String(laborer.daily_wage ?? 0));
     setEditingLaborerEmail(laborer.email ?? "");
+    setEditingLaborerAccessRole(laborer.access_role ?? "member");
   }
 
   function cancelEditLaborer() {
@@ -396,6 +405,7 @@ export default function AdminPage() {
     setEditingLaborerName("");
     setEditingLaborerDailyWage("");
     setEditingLaborerEmail("");
+    setEditingLaborerAccessRole("member");
   }
 
   async function saveEditLaborer() {
@@ -416,9 +426,10 @@ export default function AdminPage() {
           name: editingLaborerName.trim(),
           daily_wage: Number.isFinite(wage) ? wage : 0,
           email: editingLaborerEmail.trim() || null,
+          access_role: editingLaborerAccessRole,
         })
         .eq("id", editingLaborerId)
-        .select("id, name, daily_wage, email")
+        .select("id, name, daily_wage, email, access_role")
         .single();
 
       if (error) throw error;
@@ -677,7 +688,8 @@ export default function AdminPage() {
             <>
               <h3 className="font-serif text-lg font-semibold text-black">Projektek</h3>
               <p className="mt-2 font-sans text-sm text-black/70">
-                Ha a projekt típusa „Saját projekt”, akkor munkavállalókat rendelsz hozzá. Ha „Alvállalkozó”, akkor alvállalkozókat.
+                Ha a projekt típusa „Saját projekt”, akkor munkavállalókat rendelsz hozzá (csak jelölőnégyzet — a jogosultságot a{" "}
+                <strong>Munkavállalók</strong> fülön állítod be). Ha „Alvállalkozó”, akkor alvállalkozókat.
               </p>
               {subcontractorAssignmentsWarning && (
                 <div className="mt-3 p-3 rounded-lg bg-amber-50 text-amber-800 font-sans text-sm">
@@ -693,7 +705,7 @@ export default function AdminPage() {
                 )}
 
                 {projects.map((project) => {
-                  const selectedRoles = selectedByProject[project.id] ?? {};
+                  const selectedLaborerIds = selectedByProject[project.id] ?? [];
                   const selectedSubcontractors = selectedSubcontractorsByProject[project.id] ?? [];
                   const isEditing = editingProjectId === project.id;
                   const effectiveProjectKind = isEditing ? editingProjectKind : project.project_kind;
@@ -761,69 +773,35 @@ export default function AdminPage() {
                           {!isSubcontractorProject && (
                             <div className="space-y-1">
                               {laborers.map((laborer) => {
-                                const checked = Boolean(selectedRoles[laborer.id]);
-                                const currentRole = selectedRoles[laborer.id] ?? "member";
+                                const checked = selectedLaborerIds.includes(laborer.id);
                                 return (
-                                  <div
+                                  <label
                                     key={laborer.id}
-                                    className="flex items-center justify-between gap-3 px-2 py-1.5 rounded-md hover:bg-surface-variant"
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-variant cursor-pointer"
                                   >
-                                    <label
-                                      className="flex items-center gap-2 cursor-pointer flex-1"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={(e) => {
-                                          setSelectedByProject((prev) => {
-                                            const current = prev[project.id] ?? {};
-                                            const next = { ...current };
-
-                                            if (e.target.checked) {
-                                              next[laborer.id] = next[laborer.id] ?? "member";
-                                            } else {
-                                              delete next[laborer.id];
-                                            }
-
-                                            return {
-                                              ...prev,
-                                              [project.id]: next,
-                                            };
-                                          });
-                                        }}
-                                        className="h-4 w-4 rounded border-outline text-primary focus:ring-primary/50"
-                                      />
-                                      <span className="font-sans text-sm text-black">
-                                        {laborer.name}
-                                      </span>
-                                    </label>
-
-                                    {checked && (
-                                      <select
-                                        value={currentRole}
-                                        onChange={(e) => {
-                                          const role = e.target.value as LaborerRole;
-                                          setSelectedByProject((prev) => {
-                                            const current = prev[project.id] ?? {};
-                                            return {
-                                              ...prev,
-                                              [project.id]: {
-                                                ...current,
-                                                [laborer.id]: role,
-                                              },
-                                            };
-                                          });
-                                        }}
-                                        className="h-8 px-2 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
-                                        aria-label={`Role for ${laborer.name}`}
-                                      >
-                                        <option value="viewer">viewer</option>
-                                        <option value="member">member</option>
-                                        <option value="admin">admin</option>
-                                        <option value="owner">owner</option>
-                                      </select>
-                                    )}
-                                  </div>
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => {
+                                        setSelectedByProject((prev) => {
+                                          const current = prev[project.id] ?? [];
+                                          const next = e.target.checked
+                                            ? current.includes(laborer.id)
+                                              ? current
+                                              : [...current, laborer.id]
+                                            : current.filter((id) => id !== laborer.id);
+                                          return {
+                                            ...prev,
+                                            [project.id]: next,
+                                          };
+                                        });
+                                      }}
+                                      className="h-4 w-4 rounded border-outline text-primary focus:ring-primary/50"
+                                    />
+                                    <span className="font-sans text-sm text-black">
+                                      {laborer.name}
+                                    </span>
+                                  </label>
                                 );
                               })}
                             </div>
@@ -867,7 +845,7 @@ export default function AdminPage() {
                           <span className="font-sans text-xs text-black/60">
                               {isSubcontractorProject
                                 ? "Jelöld be az alvállalkozókat, amelyeket ehhez a projekthez rendelsz."
-                                : "Jelöld be a munkavállalókat, amelyeket ehhez a projekthez rendelsz."}
+                                : "Jelöld be a munkavállalókat ehhez a projekthez. A szerepkörüket a Munkavállalók fülön állítod."}
                           </span>
                           <div className="flex items-center gap-2">
                             <button
@@ -979,11 +957,11 @@ export default function AdminPage() {
             <>
               <h3 className="font-serif text-lg font-semibold text-black">Munkavállalók</h3>
               <p className="mt-2 font-sans text-sm text-black/70">
-                Add meg a munkavállalókat itt, majd rendeld hozzá őket a Projektek fülön.
+                Add meg a munkavállalókat itt, állítsd be a <strong>globális jogosultságukat</strong>, majd a Projektek fülön jelöld, mely projektekhez tartoznak.
               </p>
 
               <div className="mt-4 rounded-xl border border-outline bg-surface p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
                   <input
                     value={newLaborerName}
                     onChange={(e) => setNewLaborerName(e.target.value)}
@@ -1006,9 +984,20 @@ export default function AdminPage() {
                     placeholder="Email (opcionális)"
                     className="h-11 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
+                  <select
+                    value={newLaborerAccessRole}
+                    onChange={(e) => setNewLaborerAccessRole(e.target.value as LaborerRole)}
+                    className="h-11 px-3 rounded-lg border border-outline bg-white font-sans text-sm text-black focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    aria-label="Globális jogosultság"
+                  >
+                    <option value="viewer">viewer</option>
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                    <option value="owner">owner</option>
+                  </select>
                 </div>
                 <p className="mt-2 font-sans text-xs text-black/60">
-                  Az új munkavállalók nincsenek automatikusan projekthez rendelve.
+                  Az új munkavállalók nincsenek automatikusan projekthez rendelve. Ha megadsz emailt és az egyezik egy felhasználó fiókjával, a jogosultság szinkronizálódik a profilra.
                 </p>
                 <button
                   type="button"
@@ -1021,7 +1010,7 @@ export default function AdminPage() {
               </div>
 
               <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[520px] border-separate border-spacing-y-2">
+                <table className="w-full min-w-[640px] border-separate border-spacing-y-2">
                   <thead>
                     <tr>
                       <th className="text-left font-sans text-xs text-black/60 px-2">
@@ -1032,6 +1021,9 @@ export default function AdminPage() {
                       </th>
                       <th className="text-left font-sans text-xs text-black/60 px-2">
                         E-mail
+                      </th>
+                      <th className="text-left font-sans text-xs text-black/60 px-2">
+                        Jogosultság
                       </th>
                       <th className="text-right font-sans text-xs text-black/60 px-2">
                         Műveletek
@@ -1076,6 +1068,27 @@ export default function AdminPage() {
                             />
                           ) : (
                             laborer.email ?? "-"
+                          )}
+                        </td>
+                        <td className="px-2 py-2 font-sans text-sm text-black">
+                          {editingLaborerId === laborer.id ? (
+                            <select
+                              value={editingLaborerAccessRole}
+                              onChange={(e) =>
+                                setEditingLaborerAccessRole(e.target.value as LaborerRole)
+                              }
+                              className="h-9 w-full min-w-[120px] px-2 rounded-md border border-outline bg-white focus:outline-none focus:ring-2 focus:ring-primary/50"
+                              aria-label="Globális jogosultság"
+                            >
+                              <option value="viewer">viewer</option>
+                              <option value="member">member</option>
+                              <option value="admin">admin</option>
+                              <option value="owner">owner</option>
+                            </select>
+                          ) : (
+                            <span className="font-mono text-xs">
+                              {laborer.access_role ?? "member"}
+                            </span>
                           )}
                         </td>
                         <td className="px-2 py-2 rounded-r-lg font-sans text-sm text-black/80">
